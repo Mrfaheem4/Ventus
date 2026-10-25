@@ -1,10 +1,12 @@
 ﻿import { useEffect, useState } from "react";
 import { initializeGPU } from "./gpu/device";
 import type { GPUContext } from "./gpu/device";
+import { initializeFluid } from "./sim/initialize";
+import type { InitializationReport } from "./sim/initialize";
 
 type Status =
-  | { kind: "loading" }
-  | { kind: "ready"; context: GPUContext }
+  | { kind: "loading"; message?: string }
+  | { kind: "ready"; context: GPUContext; report: InitializationReport }
   | { kind: "error"; message: string };
 const mib = (bytes: number) => `${(bytes / 1024 ** 2).toFixed(2)} MiB`;
 
@@ -14,11 +16,17 @@ function GPUStatus() {
   useEffect(() => {
     const controller = new AbortController();
     const onFatal = (message: string) => {
-      if (!controller.signal.aborted) setStatus({ kind: "error", message });
+      if (!controller.signal.aborted) {
+        controller.abort();
+        setStatus({ kind: "error", message });
+      }
     };
     void initializeGPU(controller.signal, onFatal)
-      .then((context) => {
-        if (!controller.signal.aborted) setStatus({ kind: "ready", context });
+      .then(async (context) => {
+        if (controller.signal.aborted) return;
+        setStatus({ kind: "loading", message: "Initializing air at rest and checking GPU samples..." });
+        const report = await initializeFluid(context, controller.signal);
+        if (!controller.signal.aborted) setStatus({ kind: "ready", context, report });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -35,7 +43,7 @@ function GPUStatus() {
   if (status.kind === "loading")
     return (
       <p role="status" className="mt-4 text-cyan-300">
-        Connecting to your GPU and allocating the grid...
+        {status.message ?? "Connecting to your GPU and allocating the grid..."}
       </p>
     );
   if (status.kind === "error")
@@ -48,12 +56,12 @@ function GPUStatus() {
       </p>
     );
 
-  const { context } = status;
+  const { context, report } = status;
   const { grid, memory } = context;
   return (
     <div className="mt-5 space-y-6">
       <p role="status" className="text-cyan-300">
-        GPU ready · Startup grid allocated
+        GPU ready · Air initialized at rest
       </p>
       <dl className="grid gap-4 sm:grid-cols-3">
         {[
@@ -71,9 +79,21 @@ function GPUStatus() {
         ))}
       </dl>
       <p className="text-sm leading-6 text-slate-400">
-        The grid divides the tunnel into small cells. GPU memory is allocated
-        and ready for the solver. Airflow calculations have not started.
+        The tunnel now contains air at rest: density 1.0 in simulation units,
+        with zero bulk velocity. The inlet and airflow stepping are not active yet.
       </p>
+      <section aria-labelledby="fluid-heading" className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+        <h3 id="fluid-heading" className="font-medium text-cyan-200">Initial fluid check passed</h3>
+        <p className="mt-2 text-sm text-slate-300">
+          Read back {report.sampledCells} cells from both fluid buffers ({report.checkedStates} states).
+          Sampled density: {report.densityMin.toFixed(6)}–{report.densityMax.toFixed(6)}.
+          Maximum sampled speed: {report.maxSpeed.toExponential(2)} lattice units.
+        </p>
+        <p className="mt-2 text-xs text-slate-400">
+          Checks cover equilibrium values, density, velocity, and fluid flags at selected cells.
+          They do not validate airflow dynamics.
+        </p>
+      </section>
       {context.fallback && (
         <p className="text-sm text-amber-200">
           A smaller startup grid was selected to fit this GPU.
@@ -138,7 +158,7 @@ function App() {
         className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/70 p-6"
       >
         <h2 id="gpu-heading" className="text-lg font-medium text-white">
-          GPU foundation
+          GPU and initial fluid
         </h2>
         <GPUStatus key={attempt} />
         <button

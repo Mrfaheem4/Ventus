@@ -106,13 +106,17 @@ $env:VENTUS_BROWSER_CHANNEL = 'msedge'
 npm.cmd test
 ```
 
-The suite covers startup, unsupported browsers, adapter/device failures, smaller-grid fallback, resource cleanup, and device loss/recovery. It also attempts real WebGPU initialization; that check is reported as skipped if the test environment has no adapter. Mocked lifecycle checks do not establish physical solver accuracy.
+The suite covers startup, unsupported browsers, adapter/device failures, smaller-grid fallback, resource cleanup, device loss/recovery, and invalid initialized fluid data. Real GPU checks compile and dispatch the initialization shader, then verify every distribution in both buffers, all cell flags, and the velocity/pressure texture on the startup grid and an uneven 13 × 9 × 5 grid. These resources are deliberately filled with incorrect values first to verify reset behavior. Real GPU checks are reported as skipped if the test environment has no adapter. Mocked lifecycle checks do not establish physical solver accuracy.
 
 TypeScript is held on the 6.0 release line to satisfy the current `typescript-eslint` peer dependency; the latest TypeScript 7 release is not yet supported by that lint tooling.
 
 WebGPU requires a **secure context** (`https://` or `localhost`). The app initializes an adapter/device and allocates a **64 × 32 × 32** startup grid (65,536 cells), falling back to **32 × 16 × 16** or **16 × 8 × 8** when adapter limits or allocation errors require it. The initial resources total about **10.25 MiB**, excluding driver overhead: two D3Q19 f32 distribution buffers, u32 cell flags, a 32-byte parameter buffer, and an rgba16float velocity/pressure texture. Adapter limits are not a measure of free GPU memory.
 
-The panel shows GPU readiness, grid dimensions, memory estimates, and device limits. Reinitialization releases previous resources. Device loss pauses readiness and offers manual reinitialization. Resources are allocated but not initialized to fluid equilibrium; there is no airflow solver or flow visualization yet. These small grids are development defaults, not validated automotive simulation settings.
+The panel shows GPU readiness, grid dimensions, memory estimates, and device limits. Reinitialization releases previous resources. Device loss pauses readiness and offers manual reinitialization. These small grids are development defaults, not validated automotive simulation settings.
+
+**Current fluid initialization:** `src/shaders/init.wgsl` initializes every cell to D3Q19 equilibrium at rest: density **1.0 in lattice units**, zero bulk velocity, and `f_i = w_i` in both ping-pong buffers. This is not a physical air density of 1 kg/m³. Flags are cleared to fluid, and the velocity/pressure-variation texture is zeroed. The 32-byte parameters contain grid dimensions, `tau = 0.6`, zero inlet velocity, and disabled Smagorinsky correction. There are no solid objects or boundary conditions yet.
+
+`src/sim/initialize.ts` dispatches initialization and asynchronously reads back five selected cells (edges and center) from both buffers. An independent CPU check verifies finite, nonnegative equilibrium populations, density near 1.0, zero bulk velocity, and fluid flags with a tolerance of `1e-6`. The panel reports these sampled checks; initialization is reusable for resets. The temporary readback buffer is 780 bytes for five cells and is released after the check. These checks confirm a starting state, not correct airflow dynamics. The inlet ramp, streaming/collision solver, and flow visualization are the next steps.
 
 ## 4. Architecture
 
@@ -465,6 +469,8 @@ Cl = F_y / ( 0.5 · ρ · U² · A_ref )
 ## 13. Benchmarking
 
 **Current development hardware:** testing on a gaming laptop with an **AMD Ryzen 5 7535HS** processor. The app currently reports the selected WebGPU adapter vendor as **AMD**. The 7535HS identifies the CPU, not the GPU; the exact mobile GPU model and its memory configuration have not yet been confirmed. This records the current test environment, not a solver performance benchmark.
+
+**Initialization shader benchmark note:** correctness is checked on the startup grid and an uneven grid, including reset from deliberately incorrect data. Initialization timing has not been benchmarked. There is no stream/collide solver yet, so no ms/step or MLUPS measurements are claimed.
 
 The spec's numbers (RTX 4090 1.12 ms, 1 872 MLUPS, etc.) are arithmetic-consistent (`2 097 152 / t`), but they are **targets, not measurements**, and they ignore WebGPU overhead (validation, command encoding, browser scheduling). Measure your own.
 

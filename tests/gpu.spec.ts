@@ -21,6 +21,7 @@ async function mockGPU(
     | "low-limits"
     | "oom"
     | "validation"
+    | "bad-initialization"
     | "request-failure" = "ready",
 ) {
   await page.addInitScript((mode) => {
@@ -66,10 +67,27 @@ async function mockGPU(
                   let destroyed = false;
                   let oomReported = false;
                   const scopes: string[] = [];
-                  const resource = () => {
+                  const resource = (descriptor: { size?: number }) => {
                     state.activeResources++;
                     let released = false;
                     return {
+                      createView: () => ({}),
+                      mapAsync: async () => undefined,
+                      unmap: () => undefined,
+                      // Lifecycle-only test double. Real shader correctness is tested
+                      // separately on a real adapter in initialization.spec.ts.
+                      getMappedRange: () => {
+                        const data = new Float32Array((descriptor.size ?? 0) / 4);
+                        for (let sample = 0; sample < data.length / 39; sample++) {
+                          for (let state = 0; state < 2; state++) {
+                            for (let i = 0; i < 19; i++) {
+                              data[sample * 39 + state * 19 + i] = i === 0 ? 1 / 3 : i <= 6 ? 1 / 18 : 1 / 36;
+                            }
+                          }
+                        }
+                        if (mode === "bad-initialization") data[0] = NaN;
+                        return data.buffer;
+                      },
                       destroy: () => {
                         if (!released) {
                           released = true;
@@ -84,6 +102,18 @@ async function mockGPU(
                     lost,
                     createBuffer: resource,
                     createTexture: resource,
+                    createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
+                    createComputePipelineAsync: async () => ({ getBindGroupLayout: () => ({}) }),
+                    createBindGroup: () => ({}),
+                    queue: { writeBuffer: () => undefined, submit: () => undefined },
+                    createCommandEncoder: () => ({
+                      beginComputePass: () => ({
+                        setPipeline: () => undefined, setBindGroup: () => undefined,
+                        dispatchWorkgroups: () => undefined, end: () => undefined,
+                      }),
+                      copyBufferToBuffer: () => undefined,
+                      finish: () => ({}),
+                    }),
                     pushErrorScope: (scope: string) => scopes.push(scope),
                     popErrorScope: async () => {
                       const scope = scopes.pop();
@@ -231,8 +261,16 @@ test("real browser initializes resources when a WebGPU adapter is available", as
     "This browser environment has no WebGPU adapter; failure paths are tested separately.",
   );
   await expect(page.getByRole("status")).toContainText("GPU ready");
+  await expect(page.getByRole("heading", { name: "Initial fluid check passed" })).toBeVisible();
   await page.screenshot({
     path: "test-results/gpu-foundation.png",
     fullPage: true,
   });
+});
+
+test("invalid initialized populations show an error and release resources", async ({ page }) => {
+  await mockGPU(page, "bad-initialization");
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("invalid distribution");
+  expect(await page.evaluate(() => [window.gpuTest.activeDevices, window.gpuTest.activeResources])).toEqual([0, 0]);
 });

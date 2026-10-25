@@ -30,7 +30,8 @@ export function allocateGrid(device: GPUDevice, grid: Grid) {
       dimension: "3d",
       size: { width: grid.nx, height: grid.ny, depthOrArrayLayers: grid.nz },
       format: "rgba16float",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+        | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
     });
     resources.push(field);
     return { distributions, flags, params, field, destroy };
