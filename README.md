@@ -1,4 +1,4 @@
-# WebGPU 3D LBM Wind Tunnel
+# Ventus — WebGPU 3D LBM Wind Tunnel
 
 A real-time, browser-native 3D wind tunnel. It solves incompressible-ish airflow with the **Lattice Boltzmann Method (D3Q19, BGK collision)** in **WebGPU compute shaders (WGSL)**, voxelizes uploaded CAD meshes (OBJ / glTF) on the GPU, and visualizes the result with a **volume raymarcher** and a **200k-particle streamline tracer**.
 
@@ -77,16 +77,31 @@ device.lost.then((info) => {
 
 ## 3. Quick start
 
-Suggested stack: **Vite + TypeScript**, WGSL kept in separate `.wgsl` files imported with `?raw`.
+The app is set up directly in this repository with **React + Vite + TypeScript + Tailwind CSS**. WGSL can be kept in separate `.wgsl` files imported with `?raw`. The solver and rendering milestones below remain planned work.
+
+Use Node.js **22.12+** (Node 24 LTS recommended).
 
 ```bash
-npm create vite@latest webgpu-windtunnel -- --template vanilla-ts
-cd webgpu-windtunnel
-npm i -D @webgpu/types
+npm install
 npm run dev
 ```
 
-Add `"types": ["@webgpu/types"]` to `tsconfig.json`. WebGPU requires a **secure context** (`https://` or `localhost`).
+Open the local URL printed by Vite. On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm.ps1`.
+
+Installed tooling:
+
+- React and React DOM for the app UI.
+- Vite, TypeScript, ESLint, and React lint plugins for development.
+- Tailwind CSS with the official `@tailwindcss/vite` plugin.
+- `@webgpu/types` configured in `tsconfig.app.json` for WebGPU APIs.
+- Three.js and its types for the planned OBJ/glTF loaders and orbit camera (`three/addons/`).
+- `@playwright/test` for the planned browser validation suite. Install Chromium when adding browser tests with `npx playwright install chromium`; simulation validation tests have not been implemented yet.
+
+Commands: `npm run dev`, `npm run build`, `npm run lint`, and `npm run preview`.
+
+TypeScript is held on the 6.0 release line to satisfy the current `typescript-eslint` peer dependency; the latest TypeScript 7 release is not yet supported by that lint tooling.
+
+WebGPU requires a **secure context** (`https://` or `localhost`). The starter checks for a compatible adapter; device initialization and simulation remain roadmap work.
 
 ## 4. Architecture
 
