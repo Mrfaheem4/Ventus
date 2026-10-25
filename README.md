@@ -464,6 +464,8 @@ Cl = F_y / ( 0.5 · ρ · U² · A_ref )
 
 ## 13. Benchmarking
 
+**Current development hardware:** testing on a gaming laptop with an **AMD Ryzen 5 7535HS** processor. The app currently reports the selected WebGPU adapter vendor as **AMD**. The 7535HS identifies the CPU, not the GPU; the exact mobile GPU model and its memory configuration have not yet been confirmed. This records the current test environment, not a solver performance benchmark.
+
 The spec's numbers (RTX 4090 1.12 ms, 1 872 MLUPS, etc.) are arithmetic-consistent (`2 097 152 / t`), but they are **targets, not measurements**, and they ignore WebGPU overhead (validation, command encoding, browser scheduling). Measure your own.
 
 - **GPU time:** use `timestamp-query` (when available) with `timestampWrites` on compute passes. Report **median** and **p95** over ≥ 1 000 steps after a warm-up.
