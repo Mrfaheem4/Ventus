@@ -95,13 +95,24 @@ Installed tooling:
 - Tailwind CSS with the official `@tailwindcss/vite` plugin.
 - `@webgpu/types` configured in `tsconfig.app.json` for WebGPU APIs.
 - Three.js and its types for the planned OBJ/glTF loaders and orbit camera (`three/addons/`).
-- `@playwright/test` for the planned browser validation suite. Install Chromium when adding browser tests with `npx playwright install chromium`; simulation validation tests have not been implemented yet.
+- `@playwright/test` for GPU startup and lifecycle checks. Simulation validation tests will follow with the solver.
 
-Commands: `npm run dev`, `npm run build`, `npm run lint`, and `npm run preview`.
+Commands: `npm run dev`, `npm run build`, `npm run lint`, `npm test`, and `npm run preview`.
+
+For browser checks, install the test browser once with `npx playwright install chromium`, then run `npm test`. To use an existing Edge installation in PowerShell instead:
+
+```powershell
+$env:VENTUS_BROWSER_CHANNEL = 'msedge'
+npm.cmd test
+```
+
+The suite covers startup, unsupported browsers, adapter/device failures, smaller-grid fallback, resource cleanup, and device loss/recovery. It also attempts real WebGPU initialization; that check is reported as skipped if the test environment has no adapter. Mocked lifecycle checks do not establish physical solver accuracy.
 
 TypeScript is held on the 6.0 release line to satisfy the current `typescript-eslint` peer dependency; the latest TypeScript 7 release is not yet supported by that lint tooling.
 
-WebGPU requires a **secure context** (`https://` or `localhost`). The starter checks for a compatible adapter; device initialization and simulation remain roadmap work.
+WebGPU requires a **secure context** (`https://` or `localhost`). The app initializes an adapter/device and allocates a **64 × 32 × 32** startup grid (65,536 cells), falling back to **32 × 16 × 16** or **16 × 8 × 8** when adapter limits or allocation errors require it. The initial resources total about **10.25 MiB**, excluding driver overhead: two D3Q19 f32 distribution buffers, u32 cell flags, a 32-byte parameter buffer, and an rgba16float velocity/pressure texture. Adapter limits are not a measure of free GPU memory.
+
+The panel shows GPU readiness, grid dimensions, memory estimates, and device limits. Reinitialization releases previous resources. Device loss pauses readiness and offers manual reinitialization. Resources are allocated but not initialized to fluid equilibrium; there is no airflow solver or flow visualization yet. These small grids are development defaults, not validated automotive simulation settings.
 
 ## 4. Architecture
 
