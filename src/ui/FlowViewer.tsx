@@ -3,21 +3,27 @@ import type { GPUContext } from "../gpu/device";
 import { colorizeSlice, readSlice } from "../render/slice";
 import type { SliceQuantity } from "../render/slice";
 import type { TunnelView } from "../render/tunnel-view";
+import type { Obstacle } from '../geometry/sphere';
+import { obstacleSlice } from '../geometry/sphere';
 
 export function FlowViewer({
   context,
   steps,
   targetSpeed,
+  obstacle,
 }: {
   context: GPUContext;
   steps: number;
   targetSpeed: number;
+  obstacle: Obstacle;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<TunnelView | null>(null);
   const [quantity, setQuantity] = useState<SliceQuantity>("speed");
   const [slice, setSlice] = useState(Math.floor(context.grid.nz / 2));
   const [showGrid, setShowGrid] = useState(false);
+  const [showSlice, setShowSlice] = useState(true);
+  const [showVoxelBody, setShowVoxelBody] = useState(false);
   const [error, setError] = useState("");
   const [range, setRange] = useState<{
     min: number;
@@ -25,14 +31,16 @@ export function FlowViewer({
     invalidCells: number;
   } | null>(null);
   const extent = quantity === "speed" ? Math.max(targetSpeed, 0.005) : 0.02;
-  const request = useRef({ steps, quantity, slice, extent, showGrid });
+  const request = useRef({ steps, quantity, slice, extent, showGrid, showSlice, showVoxelBody });
 
   useEffect(() => {
-    request.current = { steps, quantity, slice, extent, showGrid };
-  }, [steps, quantity, slice, extent, showGrid]);
+    request.current = { steps, quantity, slice, extent, showGrid, showSlice, showVoxelBody };
+  }, [steps, quantity, slice, extent, showGrid, showSlice, showVoxelBody]);
   useEffect(() => {
     view.current?.setGrid(showGrid);
   }, [showGrid]);
+  useEffect(() => { view.current?.setSliceVisible(showSlice); }, [showSlice]);
+  useEffect(() => { view.current?.setVoxelBody(showVoxelBody); }, [showVoxelBody]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -69,6 +77,7 @@ export function FlowViewer({
               values,
               requested.quantity,
               requested.extent,
+              obstacleSlice(obstacle, context.grid, requested.slice),
             );
             active?.setSlice(requested.slice, colors.pixels);
             setRange({
@@ -98,10 +107,12 @@ export function FlowViewer({
     void import("../render/tunnel-view")
       .then(({ createTunnelView }) => {
         if (abort.signal.aborted || !host.current) return;
-        active = createTunnelView(host.current, context.grid);
+        active = createTunnelView(host.current, context.grid, obstacle);
         view.current = active;
         active.canvas.addEventListener("webglcontextlost", onLost);
         active.setGrid(request.current.showGrid);
+        active.setSliceVisible(request.current.showSlice);
+        active.setVoxelBody(request.current.showVoxelBody);
         void refresh();
       })
       .catch((failure: unknown) => {
@@ -119,7 +130,7 @@ export function FlowViewer({
       active?.dispose();
       view.current = null;
     };
-  }, [context]);
+  }, [context, obstacle]);
 
   return (
     <section
@@ -167,6 +178,8 @@ export function FlowViewer({
             />
             Show cell grid
           </label>
+          <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showSlice} onChange={(event) => setShowSlice(event.target.checked)} className="accent-cyan-400" />Show slice</label>
+          {obstacle.sphere && <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showVoxelBody} onChange={(event) => setShowVoxelBody(event.target.checked)} className="accent-cyan-400" />Show voxel body</label>}
         </div>
         <div>
           <label htmlFor="slice-z" className="text-sm text-slate-300">
@@ -217,7 +230,7 @@ export function FlowViewer({
         <p className="text-xs leading-5 text-slate-500">
           Colors come from the simulated field. Values beyond the displayed
           scale use its endpoint color. X follows the wind, Y is up, and Z moves
-          the slice. The tunnel is empty; objects and streamlines come later.
+          the slice. {obstacle.sphere ? 'The smooth sphere is a preview; Show voxel body reveals the solid cells used by the solver. Solid cells are excluded from slice colors and ranges.' : 'The tunnel is empty.'} Streamlines come later.
         </p>
         {error && (
           <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-sm text-amber-200">

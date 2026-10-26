@@ -68,7 +68,9 @@ export function cpuStep(
   grid: Grid,
   settings: SolverSettings,
   step: number,
+  solidFlags?: Uint32Array,
 ) {
+  if (settings.obstacle !== 'none' && !solidFlags) throw new Error('Obstacle reference requires solid flags.');
   const n = grid.nx * grid.ny * grid.nz;
   const output = new Float64Array(source.length);
   const node = (x: number, y: number, z: number) =>
@@ -84,6 +86,7 @@ export function cpuStep(
     for (let y = 0; y < grid.ny; y++)
       for (let x = 0; x < grid.nx; x++) {
         const destination = node(x, y, z);
+        if (solidFlags && (solidFlags[destination] & 1)) continue;
         if (!closedX && x === 0) {
           inlet.forEach((value, i) => {
             output[i * n + destination] = value;
@@ -121,7 +124,12 @@ export function cpuStep(
           }
           if (closedX)
             sx = (sx + grid.nx) % grid.nx;
-          return source[incoming * n + node(sx, sy, sz)];
+          const upstream = node(sx, sy, sz);
+          if (solidFlags && (solidFlags[upstream] & 1)) {
+            const opposite = directions.findIndex((direction) => direction.every((value, axis) => value === -c[axis]));
+            return source[opposite*n+destination];
+          }
+          return source[incoming * n + upstream];
         });
         const rho = populations.reduce((sum, value) => sum + value, 0);
         const velocity = [0, 1, 2].map(

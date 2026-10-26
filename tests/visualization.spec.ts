@@ -73,6 +73,8 @@ test('Three.js viewer orbits, shows live flow, switches slices and cleans up on 
   await page.goto('/');
   const supported = await page.evaluate(async () => Boolean(navigator.gpu && await navigator.gpu.requestAdapter()));
   test.skip(!supported, 'Real WebGPU adapter required for live viewer.');
+  await page.getByLabel('Test scene').selectOption('none');
+  await expect(page.getByRole('button', { name: 'Step once' })).toBeEnabled();
   const viewer = page.getByRole('region', { name: '3D flow view' });
   const canvas = viewer.getByRole('img', { name: 'Orbitable 3D wind tunnel with a colored XY flow slice' });
   await expect(canvas).toBeVisible();
@@ -92,7 +94,7 @@ test('Three.js viewer orbits, shows live flow, switches slices and cleans up on 
   await viewer.getByLabel('XY slice position:').press('Home');
   await expect(viewer.getByLabel('XY slice position:')).toHaveValue('0');
   await viewer.getByLabel('Color by').selectOption('speed');
-  const panel = page.getByRole('region', { name: 'Empty-tunnel airflow' });
+  const panel = page.getByRole('region', { name: 'Wind-tunnel airflow' });
   await panel.getByRole('button', { name: 'Run', exact: true }).click();
   const stepText = panel.locator('dt', { hasText: 'Simulation steps' }).locator('..').locator('dd');
   await expect.poll(async () => Number((await stepText.textContent())!.replaceAll(',', ''))).toBeGreaterThanOrEqual(120);

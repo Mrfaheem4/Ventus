@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GPUContext } from "../gpu/device";
 import { createSolver } from "../sim/lbm";
 import type { FlowStats, Solver } from "../sim/lbm";
 import { FlowViewer } from './FlowViewer';
+import { initializeFluid } from '../sim/initialize';
+import { createObstacle } from '../geometry/sphere';
+import type { ObstacleKind } from '../geometry/sphere';
 
 const initialStats: FlowStats = {
   steps: 0,
@@ -24,6 +27,8 @@ export function SolverPanel({ context }: { context: GPUContext }) {
   const [targetSpeed, setTargetSpeed] = useState(0.03);
   const [stats, setStats] = useState(initialStats);
   const [error, setError] = useState("");
+  const [obstacleKind, setObstacleKind] = useState<ObstacleKind>('sphere');
+  const obstacle = useMemo(() => createObstacle(context.grid, obstacleKind), [context.grid, obstacleKind]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -51,6 +56,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         if (!solver.current)
           solver.current = await createSolver(context, abort.signal, {
             targetSpeed,
+            obstacle: obstacleKind,
           });
         const next = reset
           ? await solver.current.reset()
@@ -71,7 +77,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         if (!abort.signal.aborted) setBusy(false);
       }
     },
-    [context, targetSpeed],
+    [context, targetSpeed, obstacleKind],
   );
 
   useEffect(() => {
@@ -105,6 +111,30 @@ export function SolverPanel({ context }: { context: GPUContext }) {
     setTargetSpeed(value);
   }
 
+  async function changeObstacle(kind: ObstacleKind) {
+    const abort = controller.current;
+    if (!abort || abort.signal.aborted || inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      solver.current?.dispose();
+      solver.current = null;
+      // Reinitialize the whole fluid when geometry changes. Former solids must
+      // never become fluid with zero populations left inside them.
+      await initializeFluid(context, abort.signal);
+      if (!abort.signal.aborted) {
+        setObstacleKind(kind);
+        setStats(initialStats);
+      }
+    } catch (failure) {
+      if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : 'Could not reset the scene.');
+    } finally {
+      inFlight.current = false;
+      if (!abort.signal.aborted) setBusy(false);
+    }
+  }
+
   return (
     <section
       aria-labelledby="solver-heading"
@@ -112,7 +142,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 id="solver-heading" className="font-medium text-white">
-          Empty-tunnel airflow
+          Wind-tunnel airflow
         </h3>
         <p className="text-sm text-cyan-300">
           {running ? "Running" : busy ? "Working..." : "Paused"}
@@ -121,6 +151,18 @@ export function SolverPanel({ context }: { context: GPUContext }) {
       <p className="text-sm text-slate-300">
         Inlet at x = 0 → Wind along +X → Outlet at x = end
       </p>
+      <div>
+        <label className="text-sm text-slate-300">Test scene
+          <select value={obstacleKind} disabled={running || busy} onChange={(event) => { void changeObstacle(event.target.value as ObstacleKind); }} className="ml-3 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 disabled:opacity-40">
+            <option value="sphere">Stationary sphere</option><option value="none">Empty tunnel</option>
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-slate-400">Pause before changing the scene. Changing it resets the air and step counter.</p>
+        {obstacle.sphere && <p className="mt-2 text-xs leading-5 text-slate-400">
+          Sphere diameter: {(obstacle.sphere.radius*2).toFixed(2)} cells · {obstacle.solidCells} solid cells · Blockage: {(obstacle.blockage*100).toFixed(2)}% · Effective inlet Re: {(stats.inletSpeed*obstacle.sphere.radius*2/((0.6-0.5)/3)).toFixed(2)}.
+          {' '}This is a coarse, low-Reynolds-number demonstration. Drag and lift are not measured yet.
+        </p>}
+      </div>
       <div>
         <label htmlFor="inlet-speed" className="block text-sm text-slate-300">
           Target inlet speed: {targetSpeed.toFixed(3)} lattice units
@@ -186,11 +228,11 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           </div>
         ))}
       </dl>
-      <FlowViewer context={context} steps={stats.steps} targetSpeed={targetSpeed} />
+      <FlowViewer context={context} steps={stats.steps} targetSpeed={targetSpeed} obstacle={obstacle} />
       <p className="text-xs leading-5 text-slate-400">
         Density and speed checks cover every fluid cell after each batch. Side,
         top, and bottom boundaries are free-slip; there is no ground friction or
-        object yet. Values use lattice units. The slice displays the calculated field.
+        moving ground. Values use lattice units. The slice displays fluid values outside the selected obstacle.
       </p>
       {error && (
         <p

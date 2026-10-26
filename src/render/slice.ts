@@ -50,12 +50,15 @@ export async function readSlice(context: GPUContext, z: number, signal: AbortSig
 const viridis = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
 const pressure = [[59, 76, 192], [221, 221, 221], [180, 4, 38]];
 
-export function colorizeSlice(values: Float32Array, quantity: SliceQuantity, extent: number) {
+export function colorizeSlice(values: Float32Array, quantity: SliceQuantity, extent: number, solidMask?: Uint32Array) {
   if (!Number.isFinite(extent) || extent <= 0 || values.length % 4 !== 0) throw new Error('Invalid slice color scale.');
   const pixels = new Uint8Array(values.length);
+  if (solidMask && solidMask.length !== values.length / 4) throw new Error('Solid mask does not match the slice.');
   const colors = quantity === 'speed' ? viridis : pressure;
   let min = Infinity, max = -Infinity, invalidCells = 0;
   for (let offset = 0; offset < values.length; offset += 4) {
+    // Transparent holes reveal the obstacle, and solids do not enter fluid extrema.
+    if (solidMask && (solidMask[offset / 4] & 1)) continue;
     const value = quantity === 'speed' ? Math.hypot(values[offset], values[offset + 1], values[offset + 2]) : values[offset + 3];
     if (!Number.isFinite(value)) {
       pixels.set([255, 0, 255, 255], offset);

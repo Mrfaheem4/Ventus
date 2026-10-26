@@ -1,6 +1,6 @@
 # Ventus — WebGPU 3D LBM Wind Tunnel
 
-A browser-native 3D wind tunnel project using the **Lattice Boltzmann Method (D3Q19, BGK collision)** in **WebGPU compute shaders (WGSL)**. The current build initializes and advances airflow in an empty tunnel. Uploaded-model voxelization, volume rendering, and particle flow visualization are planned capabilities.
+A browser-native 3D wind tunnel project using the **Lattice Boltzmann Method (D3Q19, BGK collision)** in **WebGPU compute shaders (WGSL)**. The current build initializes and advances airflow in an empty tunnel or around a stationary sphere. Uploaded-model voxelization, volume rendering, and particle flow visualization are planned capabilities.
 
 > **Status:** design / pre-alpha. The numbers in this document marked _(target)_ are goals from the engineering spec, not measurements. Replace them with your own benchmarks as soon as you have them (see [Benchmarking](#13-benchmarking)).
 
@@ -116,7 +116,7 @@ WebGPU requires a **secure context** (`https://` or `localhost`). The app initia
 
 The panel shows GPU readiness, grid dimensions, memory estimates, and device limits. Reinitialization releases previous resources. Device loss pauses readiness and offers manual reinitialization. These small grids are development defaults, not validated automotive simulation settings.
 
-**Current fluid initialization:** `src/shaders/init.wgsl` initializes every cell to D3Q19 equilibrium at rest: density **1.0 in lattice units**, zero bulk velocity, and `f_i = w_i` in both ping-pong buffers. This is not a physical air density of 1 kg/m³. Flags are cleared to fluid, and the velocity/pressure-variation texture is zeroed. The 32-byte parameters contain grid dimensions, `tau = 0.6`, zero inlet velocity, and disabled Smagorinsky correction. Solver setup assigns the inlet/outlet boundary flags afterward. There are no solid objects yet.
+**Current fluid initialization:** `src/shaders/init.wgsl` initializes every cell to D3Q19 equilibrium at rest: density **1.0 in lattice units**, zero bulk velocity, and `f_i = w_i` in both ping-pong buffers. This is not a physical air density of 1 kg/m³. Flags are cleared to fluid, and the velocity/pressure-variation texture is zeroed. The 32-byte parameters contain grid dimensions, `tau = 0.6`, zero inlet velocity, and disabled Smagorinsky correction. Solver setup assigns inlet/outlet and selected obstacle flags afterward. `src/shaders/obstacles.wgsl` then clears both distribution buffers and the field inside solids while preserving all fluid cells. Reset repeats this setup.
 
 `src/sim/initialize.ts` dispatches initialization and asynchronously reads back five selected cells (edges and center) from both buffers. An independent CPU check verifies finite, nonnegative equilibrium populations, density near 1.0, zero bulk velocity, and fluid flags with a tolerance of `1e-6`. The panel reports these sampled checks; initialization is reusable for resets. The temporary readback buffer is 780 bytes for five cells and is released after the check. These checks confirm a starting state, not correct airflow dynamics.
 
@@ -130,11 +130,17 @@ Solver tests compare nonuniform GPU results against a double-precision CPU refer
 
 The analytical channel test uses a verification-only `channel` boundary mode: periodic X/Z, stationary half-way bounce-back walls in Y, and a bounded constant X acceleration with Guo forcing. Acceleration defaults to zero and is rejected outside this mode. The solver's 48-byte per-step block includes this acceleration; the macroscopic pass uses the same dynamically selected block. Forced post-collision populations require subtracting half an impulse when recovering velocity. Channel reset includes the corresponding half-impulse shift. Normal wind-tunnel behavior and UI settings are unchanged.
 
-**Current flow viewer:** Three.js displays an orbitable tunnel outline, inlet/outlet markers, a +X wind arrow, and a movable XY slice. Drag to orbit, scroll to zoom, right-drag to pan, and use **Reset camera** to restore the view. Choose **Speed** (viridis) or **Pressure variation** (blue/neutral/red), move the slice across Z, and optionally show cell outlines. Color scales are labeled in lattice units, with measured slice extrema underneath. Speed uses the target inlet speed as its upper scale limit (minimum 0.005); pressure variation uses a fixed range of ±0.02. Values beyond the scale saturate at endpoint colors. Magenta marks invalid values. At rest, the speed slice is uniformly dark purple; inlet-driven flow develops after Run. A uniform color in an empty tunnel can be the correct result.
+**Current flow viewer:** Three.js displays an orbitable tunnel outline, inlet/outlet markers, a +X wind arrow, the selected obstacle, and a movable XY slice. Drag to orbit, scroll to zoom, right-drag to pan, and use **Reset camera** to restore the view. Choose **Speed** (viridis) or **Pressure variation** (blue/neutral/red), move the slice across Z, and optionally show cell outlines. **Show slice** can hide the inspection plane; **Show voxel body** replaces the smooth sphere preview with the actual solid cell boxes. The smooth sphere is an approximation for viewing, not a claim that its curved surface is exactly resolved. Solid cells cut transparent holes in the slice and are excluded from fluid color ranges. Color scales are labeled in lattice units, with measured slice extrema underneath. Speed uses the target inlet speed as its upper scale limit (minimum 0.005); pressure variation uses a fixed range of ±0.02. Values beyond the scale saturate at endpoint colors. Magenta marks invalid values. At rest, the speed slice is uniformly dark purple; inlet-driven flow develops after Run. A uniform color in an empty tunnel can be the correct result.
+
+**Stationary sphere:** the default UI scene is a sphere, with **Empty tunnel** available for comparison. Changing the scene is allowed while paused and resets the fluid and step counter; the object does not move during a run. The shared definition in `src/geometry/sphere.ts` places its center at `(0.3*nx, ny/2, nz/2)` with radius `0.115*min(ny,nz)` cells. Cell centers inside the sphere are marked solid, including its interior. The default 64 × 32 × 32 grid represents a diameter of about **7.36 cells** with approximately **4.3% voxel frontal blockage**. Smaller fallback grids are substantially coarser.
+
+The solver uses half-way no-slip bounce-back on links from fluid into the solid: it reflects the fluid cell's opposite distribution instead of reading populations from inside the sphere. Solid cells have zero distributions and are excluded from flow diagnostics. The side walls remain free-slip. Effective inlet Reynolds number is shown using sphere diameter and `nu=(tau-0.5)/3`; at the default target speed and relaxation time it is about **6.62**, so this is a low-Reynolds-number demonstration, not full-size car aerodynamics. Drag, lift, and validated sphere force coefficients are not implemented yet.
+
+Obstacle tests cover mask geometry and symmetry, rest preservation, GPU/CPU bounce-back agreement, periodic fluid-mass conservation, zero solid populations, restoration of geometry on reset, and clearing former solids when switching to an empty tunnel. A matched sphere-versus-empty run checks reduced axial speed upstream/in the wake, transverse flow diversion with opposite signs above/below the body, and an upstream-to-wake pressure difference. At low Re, a near-body side probe can also be slower than the empty-tunnel flow; acceleration above free-stream speed is not assumed. These checks verify basic coupling and plausible behavior, not a validated drag coefficient or resolved turbulent wake.
 
 The simulation still runs in WebGPU. The first viewer uses Three.js's WebGL renderer, loaded as a separate chunk after GPU initialization. To bridge the two APIs, `src/render/slice.ts` asynchronously copies only one rgba16float XY plane to a temporary readback buffer, removes row padding, decodes half floats, and converts the stored pressure signal to lattice pressure variation. A CPU-colored texture is then uploaded to Three.js. This is not a zero-copy renderer. Requests are serialized and limited to roughly eight updates per second, and are skipped when the field/settings have not changed or the document is hidden. Each startup-grid plane is approximately 16 KiB before color conversion; temporary buffers are released after use. Three.js rendering resources are separate from the core-grid memory estimate.
 
-Viewer checks cover color meaning, half-float conversion, actual GPU slice selection and row padding, live updates, orbit controls, slice/color selection, reset/reinitialization, and portrait layout. Particle tracers, volume rendering, objects, and uploaded geometry remain future work.
+Viewer checks cover color meaning, half-float conversion, actual GPU slice selection and row padding, live updates, orbit controls, slice/color selection, reset/reinitialization, and portrait layout. Particle tracers, volume rendering, and uploaded geometry remain future work.
 
 ## 4. Architecture
 
@@ -488,7 +494,7 @@ Cl = F_y / ( 0.5 · ρ · U² · A_ref )
 
 **Current development hardware:** testing on a gaming laptop with an **AMD Ryzen 5 7535HS** processor. The app currently reports the selected WebGPU adapter vendor as **AMD**. The 7535HS identifies the CPU, not the GPU; the exact mobile GPU model and its memory configuration have not yet been confirmed. This records the current test environment, not a solver performance benchmark.
 
-**Shader benchmark note:** initialization and stream/collide correctness have automated checks, including uneven grids, analytical vortex decay, and forced channel profiles. Performance has not been benchmarked; no GPU ms/step or MLUPS measurements are claimed. Passing these low-speed laminar checks does not replace experimental validation of model aerodynamics.
+**Shader benchmark note:** initialization and stream/collide correctness have automated checks, including uneven grids, analytical vortex decay, forced channel profiles, and basic static-sphere coupling. Performance has not been benchmarked; no GPU ms/step or MLUPS measurements are claimed. Passing these low-speed laminar checks does not replace experimental validation of model aerodynamics.
 
 The spec's numbers (RTX 4090 1.12 ms, 1 872 MLUPS, etc.) are arithmetic-consistent (`2 097 152 / t`), but they are **targets, not measurements**, and they ignore WebGPU overhead (validation, command encoding, browser scheduling). Measure your own.
 
@@ -615,7 +621,8 @@ webgpu-windtunnel/
 
 **Milestone 2: Obstacles and forces**
 
-- [ ] Hard-coded sphere / cylinder obstacles with bounce-back
+- [x] Stationary sphere with solid-cell preparation and half-way bounce-back
+- [ ] Cylinder obstacle
 - [ ] Momentum-exchange forces, Cd and Strouhal validation
 - [ ] Unit mapping, Re/Ma readout, stability guards
 

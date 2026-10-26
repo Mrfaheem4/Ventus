@@ -1,3 +1,5 @@
+import type { ObstacleKind } from '../geometry/sphere';
+
 export type BoundaryMode =
   | "free-slip"
   | "periodic-sides"
@@ -9,6 +11,7 @@ export interface SolverSettings {
   rampSteps: number;
   boundaryMode: BoundaryMode;
   acceleration: number;
+  obstacle: ObstacleKind;
 }
 export const DEFAULT_SETTINGS: SolverSettings = {
   targetSpeed: 0.03,
@@ -16,8 +19,11 @@ export const DEFAULT_SETTINGS: SolverSettings = {
   rampSteps: 300,
   boundaryMode: "free-slip",
   acceleration: 0,
+  obstacle: 'none',
 };
 export function validateSettings(settings: SolverSettings) {
+  if (!['none', 'sphere'].includes(settings.obstacle)) throw new Error('Unknown static obstacle.');
+  if (settings.obstacle !== 'none' && settings.boundaryMode === 'channel') throw new Error('Channel verification does not include obstacles.');
   if (
     !Number.isFinite(settings.targetSpeed) ||
     settings.targetSpeed < 0 ||

@@ -1,5 +1,7 @@
 import lbmShader from "../shaders/lbm.wgsl?raw";
 import macroShader from "../shaders/macroscopic.wgsl?raw";
+import obstacleShader from '../shaders/obstacles.wgsl?raw';
+import { createObstacle } from '../geometry/sphere';
 import type { GPUContext } from "../gpu/device";
 import { initializeFluid } from "./initialize";
 import { DEFAULT_SETTINGS, inletSpeed, validateSettings } from "./settings";
@@ -23,6 +25,7 @@ export async function createSolver(
   validateSettings(settings);
   signal.throwIfAborted();
   const { device, resources, grid } = context;
+  const obstacle = createObstacle(grid, settings.obstacle);
   const owned: GPUBuffer[] = [];
   let disposed = false;
   let busy = false;
@@ -54,7 +57,7 @@ export async function createSolver(
     return value;
   }
   function configureBoundaries() {
-    const flags = new Uint32Array(context.memory.cells);
+    const flags = obstacle.solidFlags.slice();
     if (
       settings.boundaryMode !== "periodic" &&
       settings.boundaryMode !== "channel"
@@ -62,8 +65,8 @@ export async function createSolver(
       for (let z = 0; z < grid.nz; z++)
         for (let y = 0; y < grid.ny; y++) {
           const row = grid.nx * (y + grid.ny * z);
-          flags[row] = 2;
-          flags[row + grid.nx - 1] = 4;
+          flags[row] |= 2;
+          flags[row + grid.nx - 1] |= 4;
         }
     }
     device.queue.writeBuffer(resources.flags, 0, flags);
@@ -212,7 +215,32 @@ export async function createSolver(
         ],
       }),
     );
+    let solidPipeline: GPUComputePipeline | undefined;
+    let solidGroup: GPUBindGroup | undefined;
+    if (obstacle.solidCells) {
+      const shader = await module('Static solid preparation', obstacleShader);
+      solidPipeline = await device.createComputePipelineAsync({ label: 'Prepare solid cells', layout: 'auto', compute: { module: shader, entryPoint: 'main' } });
+      checkActive();
+      solidGroup = device.createBindGroup({ layout: solidPipeline.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: resources.distributions[0] } },
+        { binding: 1, resource: { buffer: resources.distributions[1] } },
+        { binding: 2, resource: { buffer: resources.flags } },
+        { binding: 3, resource: { buffer: resources.params } },
+        { binding: 4, resource: resources.field.createView() },
+      ] });
+    }
+    function prepareSolids() {
+      if (!solidPipeline || !solidGroup) return;
+      const encoder = device.createCommandEncoder({ label: 'Apply stationary obstacle' });
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(solidPipeline);
+      pass.setBindGroup(0, solidGroup);
+      pass.dispatchWorkgroups(Math.ceil(grid.nx/8), Math.ceil(grid.ny/8), Math.ceil(grid.nz/4));
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+    }
     configureBoundaries();
+    prepareSolids();
 
     async function step(count = 1): Promise<FlowStats> {
       checkActive();
@@ -338,6 +366,7 @@ export async function createSolver(
           }
         }
         configureBoundaries();
+        prepareSolids();
         current = 0;
         steps = 0;
         failed = false;
@@ -365,6 +394,7 @@ export async function createSolver(
         return { ...stats };
       },
       settings: { ...settings },
+      obstacle,
     };
   }
   try {
