@@ -1,686 +1,178 @@
-# Ventus — WebGPU 3D LBM Wind Tunnel
+# Ventus
 
-A browser-native 3D wind tunnel project using the **Lattice Boltzmann Method (D3Q19, BGK collision)** in **WebGPU compute shaders (WGSL)**. The current build initializes and advances airflow in an empty tunnel or around a stationary sphere. Uploaded-model voxelization, volume rendering, and particle flow visualization are planned capabilities.
+A browser-based virtual wind tunnel for exploring how air moves around 3D objects.
 
-> **Status:** design / pre-alpha. The numbers in this document marked _(target)_ are goals from the engineering spec, not measurements. Replace them with your own benchmarks as soon as you have them (see [Benchmarking](#13-benchmarking)).
+Ventus aims to combine credible aerodynamic simulation with an immersive visual experience: load a model, configure the wind, and inspect airflow, pressure, and the wake around it.
 
----
+**Status: pre-alpha learning project.** The current app supports a stationary sphere, an empty tunnel, and provisional force measurements. User-uploaded models, smoke trails, and volume visualization are still in development or planned.
 
-## Table of contents
+## Our mission
 
-1. [Features](#1-features)
-2. [Browser & hardware requirements](#2-browser--hardware-requirements)
-3. [Quick start](#3-quick-start)
-4. [Architecture](#4-architecture)
-5. [Numerical method](#5-numerical-method)
-6. [Units, scaling, and choosing parameters](#6-units-scaling-and-choosing-parameters)
-7. [GPU memory layout and limits](#7-gpu-memory-layout-and-limits)
-8. [Reference WGSL (fused stream + collide)](#8-reference-wgsl-fused-stream--collide)
-9. [Boundary conditions](#9-boundary-conditions)
-10. [Mesh voxelization](#10-mesh-voxelization)
-11. [Force & coefficient measurement](#11-force--coefficient-measurement)
-12. [Visualization](#12-visualization)
-13. [Benchmarking](#13-benchmarking)
-14. [Validation suite](#14-validation-suite)
-15. [Known pitfalls in the original spec](#15-known-pitfalls-in-the-original-spec)
-16. [Stability & robustness](#16-stability--robustness)
-17. [Project structure](#17-project-structure)
-18. [Roadmap](#18-roadmap)
-19. [References](#19-references)
+Build a wind tunnel that is enjoyable to explore, useful for learning, and increasingly capable as its physics and validation improve.
 
----
+- **Physics first.** Validate the calculations before treating their results as trustworthy measurements.
+- **Exceptional visuals and interaction.** Work toward fluid motion, readable analysis, polished controls, and a dedicated tunnel workspace.
+- **Use the user's GPU effectively.** Offer more detail and richer visuals as the device, browser, and validated solver allow.
+- **Keep access simple.** Open the app, use it, optionally download results, and leave. No account, database, or server-side simulation is required by the current architecture.
+- **Make the limits understandable.** Explain quality, performance, and accuracy without asking users to understand the implementation.
 
-## 1. Features
+The long-term experience should make airflow feel tangible: streams passing around the body, smoke-like trails revealing motion, and wake structures that can be explored in 3D. These visuals must follow the calculated flow. Fine vortices require appropriate physics and sufficient resolution; a smooth model or dense particle effect does not establish simulation accuracy.
 
-This table describes the target feature set. See Quick start and the Roadmap for implementation status. The current scope is stationary models with computation on the user's GPU; moving ground and moving parts are deferred.
+## Your GPU powers the simulation
 
-| Area       | Feature                                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------------------------------- |
-| Solver     | D3Q19 lattice, BGK (single relaxation time) collision, fused pull-stream + collide kernel                  |
-| Memory     | Structure-of-Arrays (SoA) distributions, ping-pong buffers                                                 |
-| Geometry   | OBJ / glTF upload, GPU triangle-box SAT voxelization, interior fill, auto-fit to domain                    |
-| Boundaries | Half-way bounce-back (solids), equilibrium/Zou-He inlet, zero-gradient outlet, free-slip or periodic sides |
-| Analysis   | Drag / lift / side force and Cd / Cl / Cs via momentum exchange, live plots                                |
-| Rendering  | Volume raymarch (pressure / speed / vorticity / Q-criterion), slice planes, RK2 particle streamlines       |
-| UX         | Orbit camera, angle-of-attack / yaw controls, live re-voxelization, probe tool, pause / step               |
+**Ventus runs simulations locally using your GPU. Higher quality increases GPU memory use, power consumption, and computation time.**
 
-## 2. Browser & hardware requirements
+Models and simulation data remain on the user's device in the current app. There is no server GPU or cloud compute service behind it.
 
-- A browser with **WebGPU** enabled (current Chrome / Edge, recent Safari and Firefox builds; check caniuse for the latest status). Always feature-detect: `if (!navigator.gpu) { showFallbackMessage(); }`.
-- A discrete or recent integrated GPU. 128³ needs roughly **350 MB** of VRAM; 256³ needs **>2.7 GB** (see [section 7](#7-gpu-memory-layout-and-limits)).
-- **You must request higher device limits.** Defaults are too small for this project (see below). Always read `adapter.limits` and request what you need, with a graceful fallback to a smaller grid.
+Our direction is to start at a practical quality level and let capable hardware go further. The current coarse grid is a development starting point, not the intended final quality ceiling.
 
-```ts
-const adapter = await navigator.gpu.requestAdapter({
-  powerPreference: "high-performance",
-});
-if (!adapter) throw new Error("No WebGPU adapter");
+Planned quality controls will distinguish:
 
-const need = {
-  maxStorageBufferBindingSize: Math.min(
-    adapter.limits.maxStorageBufferBindingSize,
-    1 << 31,
-  ),
-  maxBufferSize: Math.min(adapter.limits.maxBufferSize, 1 << 31),
-};
-const device = await adapter.requestDevice({
-  requiredLimits: need,
-  requiredFeatures: adapter.features.has("timestamp-query")
-    ? ["timestamp-query"]
-    : [],
-});
+| Setting | What it changes |
+| --- | --- |
+| Simulation resolution | How finely the object and airflow are represented |
+| Simulation effort | How much calculation is performed before and during exploration |
+| Visual quality | Particle density, trails, effects, and rendering detail |
 
-device.lost.then((info) => {
-  // GPU reset / tab backgrounded / driver crash
-  console.error("Device lost:", info.reason, info.message);
-  // Re-create device, re-upload geometry, restart from last checkpoint or equilibrium.
-});
-```
+We will benchmark and optimize our own implementation before attributing limits to the user's hardware. Higher resolution will be evaluated alongside accuracy, memory use, and responsiveness. Local refinement is a future investigation, not an implemented feature.
 
-## 3. Quick start
+WebGPU does not provide a reliable total/free VRAM reading. The app can report resource estimates, supported limits, and measured performance. A confirmed minimum hardware specification and performance tiers have not been established yet.
 
-The app is set up directly in this repository with **React + Vite + TypeScript + Tailwind CSS**. WGSL can be kept in separate `.wgsl` files imported with `?raw`. The solver and rendering milestones below remain planned work.
+## What works today
 
-Use Node.js **22.12+** (Node 24 LTS recommended).
+- Local GPU detection, startup checks, smaller-grid fallbacks, and device-loss handling.
+- A 3D airflow solver with gradual wind startup, inlet/outlet boundaries, and free-slip tunnel sides.
+- Run, pause, single-step, and fluid reset controls.
+- A stationary sphere with solid-cell boundaries, plus an empty tunnel for comparison.
+- Safe scene changes that reset the fluid and step counter.
+- An orbitable Three.js viewer with speed and pressure slices, labeled color scales, and optional cell outlines.
+- A hideable slice and a voxel-body view showing the shape the solver actually uses.
+- Density, speed, stability, and basic dimensionless-flow readouts.
+- Signed sphere forces, provisional drag/lift coefficients, and a drag history chart.
+- Automated GPU, CPU-reference, analytical-flow, reset, and viewer checks.
+
+The sphere is currently represented by only a few cells across its diameter. It is intentionally coarse and blocky in voxel view. The smooth sphere is a visual preview; the voxel body represents the simulation geometry.
+
+Current sphere results are a low-Reynolds-number demonstration. They do not establish accurate full-size vehicle aerodynamics, resolved turbulent wakes, or validated drag/lift coefficients. Wind values currently use simulation units; physical dimensions and meters-per-second controls are planned.
+
+## Try the current demo
+
+1. Start the app and wait for GPU initialization to finish.
+2. Keep **Stationary sphere** selected, or choose **Empty tunnel** for comparison.
+3. Set the target inlet speed and click **Run**.
+4. Orbit the scene and switch between speed and pressure coloring.
+5. Move the slice across the tunnel, toggle **Show voxel body**, or hide the slice entirely.
+6. Pause to inspect the state, advance one step, or reset the fluid.
+
+Changing the test scene resets the simulation. A nearly uniform color can be correct for an empty tunnel. Smoke-like trails and particle visualization are not implemented yet.
+
+## Roadmap
+
+### 1. Establish trustworthy physics
+
+- [x] GPU setup, fluid initialization, and basic airflow stepping.
+- [x] Inlet/outlet boundaries, gradual startup, pause/step/reset, and stability checks.
+- [x] CPU-reference comparisons and basic mass-conservation checks.
+- [x] Taylor-Green vortex decay and Poiseuille channel validation, including two-resolution refinement checks.
+- [x] Stationary sphere boundaries, reset safety, and basic flow-response checks.
+- [x] Momentum-exchange force measurements and an initial matched-Re sphere comparison.
+- [ ] Quantitative drag/lift validation: the sphere comparison still shows a reference gap.
+- [ ] Sphere resolution studies and more accurate treatment of curved surfaces.
+- [ ] Physical dimensions, units, and meters-per-second wind controls.
+- [ ] Broader 3D validation and improved boundary and turbulence treatment.
+- [ ] Cylinder and additional benchmark objects.
+
+### 2. Support users' own models
+
+- [ ] Local OBJ, GLB, and glTF loading.
+- [ ] Model preview, units, physical dimensions, orientation, and placement controls.
+- [ ] Geometry checks and clear feedback about invalid or unresolved features.
+- [ ] Convert the model's surface and interior into a reliable simulation obstacle.
+- [ ] Show the simulation representation alongside the original model.
+- [ ] Reinitialize safely when geometry or its placement changes.
+
+Models will remain stationary during a simulation in this phase. Moving ground, rotating wheels, and other moving parts are deferred.
+
+### 3. Scale quality with the hardware
+
+- [ ] Measure simulation speed, memory requirements, and sustained responsiveness.
+- [ ] Establish tested hardware baselines and useful quality tiers.
+- [ ] Automatic starting settings with advanced quality controls.
+- [ ] Higher-resolution grids and support for larger allocations where available.
+- [ ] Improve memory efficiency and GPU scheduling.
+- [ ] Scale simulation quality and rendering quality independently.
+- [ ] Investigate local refinement around the body and wake.
+- [ ] Clearly communicate local GPU use, resource estimates, progress, and recoverable failures.
+
+A powerful GPU should unlock more capability as the engine improves. No fixed resolution or tiny-vortex accuracy is promised across all models and devices.
+
+### 4. Make airflow visible in 3D
+
+- [x] Orbitable tunnel with optional speed/pressure slices and cell outlines.
+- [x] Smooth and voxel previews of the stationary sphere.
+- [ ] Moving flow tracers, configurable emitters, and persistent trails.
+- [ ] Smoke-like visualization and volumetric views.
+- [ ] Wake and vortex inspection using quantities derived from the simulation.
+- [ ] Model-surface pressure coloring and point inspection.
+- [ ] Clear legends, useful view presets, and exportable results or captures.
+
+### 5. Build the immersive tunnel workspace — much later
+
+Do this major visual redesign after the core physics, model handling, and flow visualization work reliably. Visual quality and interaction are major project goals, not finishing touches to ignore.
+
+- [ ] A dedicated full-page workspace centered on the 3D tunnel scene.
+- [ ] A room-like environment with lighting, depth, surroundings, and a clear sense of scale.
+- [ ] Well-presented models with visible wind streams, smoke trails, and computed wake structures.
+- [ ] Refined camera controls, transitions, and feedback.
+- [ ] Controls and analysis tools arranged around the scene without obscuring it.
+- [ ] Optional slices and grids as inspection tools rather than the only way to see airflow.
+- [ ] Responsive layouts and visual quality settings appropriate to the device.
+
+## Browser and hardware
+
+Use a browser that exposes hardware-accelerated WebGPU, with compatible GPU drivers. Integrated graphics can be suitable for smaller simulations; stronger hardware can support more demanding settings as they become available. The app checks support at startup.
+
+Run on HTTPS or localhost. Browser support alone does not guarantee adequate memory, speed, or numerical accuracy for a chosen simulation.
+
+**Current development machine:** a gaming laptop with an AMD Ryzen 5 7535HS processor. The browser reports the selected GPU vendor as AMD; the exact active GPU model and memory configuration have not been confirmed. The processor name is not the GPU model.
+
+## Run locally
+
+Requires Node.js 22.12 or later.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. On Windows PowerShell, use `npm.cmd` if script execution policy blocks `npm.ps1`.
+Open the local address printed by Vite. In Windows PowerShell, use `npm.cmd` if script policy blocks `npm.ps1`.
 
-Installed tooling:
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the development app |
+| `npm run build` | Check TypeScript and build the app |
+| `npm run preview` | Preview the built app |
+| `npm run lint` | Check source code |
+| `npm test` | Run automated checks |
+| `npm run study:drag` | Run the longer, isolated GPU sphere study |
 
-- React and React DOM for the app UI.
-- Vite, TypeScript, ESLint, and React lint plugins for development.
-- Tailwind CSS with the official `@tailwindcss/vite` plugin.
-- `@webgpu/types` configured in `tsconfig.app.json` for WebGPU APIs.
-- Three.js and its types for the orbitable tunnel/slice viewer and future OBJ/glTF loaders (`three/addons/`).
-- `@playwright/test` for GPU startup, lifecycle, initialization, and basic solver checks.
+## Validation and development
 
-Commands: `npm run dev`, `npm run build`, `npm run lint`, `npm test`, and `npm run preview`.
+Ventus uses React, TypeScript, Vite, Tailwind CSS, Three.js, and WebGPU. The current solver uses the Lattice Boltzmann Method. Shader code and implementation details live in the source rather than being duplicated here.
 
-For browser checks, install the test browser once with `npx playwright install chromium`, then run `npm test`. To use an existing Edge installation in PowerShell instead:
+For browser tests, install Chromium once with `npx playwright install chromium`, then run `npm test`. To use an existing Edge installation in PowerShell:
 
 ```powershell
 $env:VENTUS_BROWSER_CHANNEL = 'msedge'
 npm.cmd test
 ```
 
-The suite covers startup, unsupported browsers, adapter/device failures, smaller-grid fallback, resource cleanup, device loss/recovery, and invalid initialized fluid data. Real GPU checks compile and dispatch the initialization shader, then verify every distribution in both buffers, all cell flags, and the velocity/pressure texture on the startup grid and an uneven 13 × 9 × 5 grid. These resources are deliberately filled with incorrect values first to verify reset behavior. Real GPU checks are reported as skipped if the test environment has no adapter. Mocked lifecycle checks do not establish physical solver accuracy.
+Real GPU tests are explicitly skipped if no compatible adapter is available. A skipped GPU check is not evidence that the simulation passed validation. Analytical formulas, test criteria, example measurements, and limits are documented in the [validation notes](tests/validation/README.md).
 
-TypeScript is held on the 6.0 release line to satisfy the current `typescript-eslint` peer dependency; the latest TypeScript 7 release is not yet supported by that lint tooling.
+The [sphere force study](tests/validation/sphere-drag.md) records resolution, tunnel size, memory estimates, timings, and the unresolved difference from an isolated-sphere reference. The study runs with one worker to avoid competition between tests for the GPU.
 
-WebGPU requires a **secure context** (`https://` or `localhost`). The app initializes an adapter/device and allocates a **64 × 32 × 32** startup grid (65,536 cells), falling back to **32 × 16 × 16** or **16 × 8 × 8** when adapter limits or allocation errors require it. The initial resources total about **10.25 MiB**, excluding driver overhead: two D3Q19 f32 distribution buffers, u32 cell flags, a 32-byte parameter buffer, and an rgba16float velocity/pressure texture. Adapter limits are not a measure of free GPU memory.
-
-The panel shows GPU readiness, grid dimensions, memory estimates, and device limits. Reinitialization releases previous resources. Device loss pauses readiness and offers manual reinitialization. These small grids are development defaults, not validated automotive simulation settings.
-
-**Current fluid initialization:** `src/shaders/init.wgsl` initializes every cell to D3Q19 equilibrium at rest: density **1.0 in lattice units**, zero bulk velocity, and `f_i = w_i` in both ping-pong buffers. This is not a physical air density of 1 kg/m³. Flags are cleared to fluid, and the velocity/pressure-variation texture is zeroed. The 32-byte parameters contain grid dimensions, `tau = 0.6`, zero inlet velocity, and disabled Smagorinsky correction. Solver setup assigns inlet/outlet and selected obstacle flags afterward. `src/shaders/obstacles.wgsl` then clears both distribution buffers and the field inside solids while preserving all fluid cells. Reset repeats this setup.
-
-`src/sim/initialize.ts` dispatches initialization and asynchronously reads back five selected cells (edges and center) from both buffers. An independent CPU check verifies finite, nonnegative equilibrium populations, density near 1.0, zero bulk velocity, and fluid flags with a tolerance of `1e-6`. The panel reports these sampled checks; initialization is reusable for resets. The temporary readback buffer is 780 bytes for five cells and is released after the check. These checks confirm a starting state, not correct airflow dynamics.
-
-**Current airflow solver:** `src/shaders/lbm.wgsl` implements fused pull streaming and BGK collision with prebuilt A→B/B→A bind groups. Wind enters at **x = 0 along +X**; Y is vertical and Z is lateral. The default inlet ramps smoothly from rest to **0.03 lattice units over 300 steps**, with `tau = 0.6`. The inlet prescribes equilibrium populations at density 1.0; the outlet copies the previous upstream populations (first-order zero-gradient approximation). Side/top/bottom boundaries use half-link specular reflection (free-slip), including edges and corners. They do not model a frictional road surface. Periodic side and fully periodic modes are available through solver settings for verification, not exposed as UI presets.
-
-Use **Run**, **Pause**, **Step once**, and **Reset fluid**. Choose a target inlet speed from **0 to 0.08 lattice units** before stepping; reset before changing it. Run uses four steps per animation frame, with at most one batch in flight, and pauses when the document becomes hidden. Pause lets an already submitted batch finish. Reinitializing the GPU also releases solver resources. A failed solver step requires a fluid reset before continuing.
-
-`src/shaders/macroscopic.wgsl` recovers velocity and density, writes `(u.x, u.y, u.z, (rho - 1) * 1000)` into the field texture, and reduces density extrema, maximum speed, and invalid-cell counts over every fluid cell after each batch. Recover lattice pressure variation as `field.w / 3000`. Diagnostics flag nonpositive/out-of-range values and speeds above 0.3; host checks also stop on density outside [0.8, 1.2]. These are development stability guards, not accuracy guarantees. The Mach readout is `maxSpeed * sqrt(3)`; physical m/s scaling and effective Reynolds-number reporting remain pending. Solver scratch buffers use about **4 KiB** beyond the core grid at the default uniform-buffer alignment.
-
-Solver tests compare nonuniform GPU results against a double-precision CPU reference, exercise boundaries/corners and odd-size grids, check periodic mass conservation and uniform-flow preservation, inspect the velocity/pressure field, confirm inlet-driven flow reaches the tunnel interior/outlet, and verify reset data directly. **Analytical Taylor–Green decay and Poiseuille channel tests now pass**, with error decreasing on finer grids. See [analytical validation details](tests/validation/README.md) for formulas, acceptance criteria, example measurements, and limitations. Broader grid convergence, 3D flow validation, and obstacle/force benchmarks remain pending. Current scope is stationary models, local browser GPU computation, and no backend or storage.
-
-The analytical channel test uses a verification-only `channel` boundary mode: periodic X/Z, stationary half-way bounce-back walls in Y, and a bounded constant X acceleration with Guo forcing. Acceleration defaults to zero and is rejected outside this mode. The solver's 48-byte per-step block includes this acceleration; the macroscopic pass uses the same dynamically selected block. Forced post-collision populations require subtracting half an impulse when recovering velocity. Channel reset includes the corresponding half-impulse shift. Normal wind-tunnel behavior and UI settings are unchanged.
-
-**Current flow viewer:** Three.js displays an orbitable tunnel outline, inlet/outlet markers, a +X wind arrow, the selected obstacle, and a movable XY slice. Drag to orbit, scroll to zoom, right-drag to pan, and use **Reset camera** to restore the view. Choose **Speed** (viridis) or **Pressure variation** (blue/neutral/red), move the slice across Z, and optionally show cell outlines. **Show slice** can hide the inspection plane; **Show voxel body** replaces the smooth sphere preview with the actual solid cell boxes. The smooth sphere is an approximation for viewing, not a claim that its curved surface is exactly resolved. Solid cells cut transparent holes in the slice and are excluded from fluid color ranges. Color scales are labeled in lattice units, with measured slice extrema underneath. Speed uses the target inlet speed as its upper scale limit (minimum 0.005); pressure variation uses a fixed range of ±0.02. Values beyond the scale saturate at endpoint colors. Magenta marks invalid values. At rest, the speed slice is uniformly dark purple; inlet-driven flow develops after Run. A uniform color in an empty tunnel can be the correct result.
-
-**Stationary sphere:** the default UI scene is a sphere, with **Empty tunnel** available for comparison. Changing the scene is allowed while paused and resets the fluid and step counter; the object does not move during a run. The shared definition in `src/geometry/sphere.ts` places its center at `(0.3*nx, ny/2, nz/2)` with radius `0.115*min(ny,nz)` cells. Cell centers inside the sphere are marked solid, including its interior. The default 64 × 32 × 32 grid represents a diameter of about **7.36 cells** with approximately **4.3% voxel frontal blockage**. Smaller fallback grids are substantially coarser.
-
-The solver uses half-way no-slip bounce-back on links from fluid into the solid: it reflects the fluid cell's opposite distribution instead of reading populations from inside the sphere. Solid cells have zero distributions and are excluded from flow diagnostics. The side walls remain free-slip. Effective inlet Reynolds number is shown using sphere diameter and `nu=(tau-0.5)/3`; at the default target speed and relaxation time it is about **6.62**, so this is a low-Reynolds-number demonstration, not full-size car aerodynamics. Drag, lift, and validated sphere force coefficients are not implemented yet.
-
-Obstacle tests cover mask geometry and symmetry, rest preservation, GPU/CPU bounce-back agreement, periodic fluid-mass conservation, zero solid populations, restoration of geometry on reset, and clearing former solids when switching to an empty tunnel. A matched sphere-versus-empty run checks reduced axial speed upstream/in the wake, transverse flow diversion with opposite signs above/below the body, and an upstream-to-wake pressure difference. At low Re, a near-body side probe can also be slower than the empty-tunnel flow; acceleration above free-stream speed is not assumed. These checks verify basic coupling and plausible behavior, not a validated drag coefficient or resolved turbulent wake.
-
-The simulation still runs in WebGPU. The first viewer uses Three.js's WebGL renderer, loaded as a separate chunk after GPU initialization. To bridge the two APIs, `src/render/slice.ts` asynchronously copies only one rgba16float XY plane to a temporary readback buffer, removes row padding, decodes half floats, and converts the stored pressure signal to lattice pressure variation. A CPU-colored texture is then uploaded to Three.js. This is not a zero-copy renderer. Requests are serialized and limited to roughly eight updates per second, and are skipped when the field/settings have not changed or the document is hidden. Each startup-grid plane is approximately 16 KiB before color conversion; temporary buffers are released after use. Three.js rendering resources are separate from the core-grid memory estimate.
-
-Viewer checks cover color meaning, half-float conversion, actual GPU slice selection and row padding, live updates, orbit controls, slice/color selection, reset/reinitialization, and portrait layout. Particle tracers, volume rendering, and uploaded geometry remain future work.
-
-## 4. Architecture
-
-```
- CAD upload ──► Parse (OBJ/glTF) ──► Normalize + place in domain
-                                           │
-                                           ▼
-                                  GPU voxelizer (SAT shell)
-                                           │
-                                           ▼
-                                  Interior fill (parity / flood)
-                                           │
-                                           ▼
-                                      node_flags[]
-                                           │
-        ┌──────────────────────────────────┘
-        ▼
-  ┌──────────── per frame: K sub-steps ────────────┐
-  │  LBM fused stream+collide  (A ─► B)            │
-  │  swap A/B                                      │
-  └────────────────────────────────────────────────┘
-        │
-        ▼
-  Macroscopic pass (rho, u) ─► 3D texture (+ optional force reduction)
-        │
-        ├──► Volume raymarch (fragment shader)
-        └──► Particle advect (RK2, compute) ─► instanced draw
-```
-
-**Two things the original spec leaves implicit and you should decide early:**
-
-1. **Sub-stepping.** One LBM step per rendered frame at 60 FPS is a slow simulation (60 lattice steps/s). Run **K LBM steps per frame** (e.g. 4–20), and render only once. Make K adjustable and auto-tune it against a frame-time budget.
-2. **Ping-pong is a bind-group swap, not a copy.** Create two bind groups (A→B and B→A) up front and alternate them. Never recreate bind groups per frame.
-
-## 5. Numerical method
-
-**Lattice:** D3Q19 with `c_s² = 1/3`.
-
-| Index `i` | Velocity `c_i`                  | Weight `w_i` |
-| --------- | ------------------------------- | ------------ |
-| 0         | (0,0,0)                         | 1/3          |
-| 1–6       | (±1,0,0), (0,±1,0), (0,0,±1)    | 1/18         |
-| 7–18      | (±1,±1,0), (±1,0,±1), (0,±1,±1) | 1/36         |
-
-**Recommended ordering (opposite pairs are adjacent, so `opp(i)` is a lookup or a cheap bit trick):**
-
-```
- 0: ( 0, 0, 0)
- 1: ( 1, 0, 0)   2: (-1, 0, 0)
- 3: ( 0, 1, 0)   4: ( 0,-1, 0)
- 5: ( 0, 0, 1)   6: ( 0, 0,-1)
- 7: ( 1, 1, 0)   8: (-1,-1, 0)   9: ( 1,-1, 0)  10: (-1, 1, 0)
-11: ( 1, 0, 1)  12: (-1, 0,-1)  13: ( 1, 0,-1)  14: (-1, 0, 1)
-15: ( 0, 1, 1)  16: ( 0,-1,-1)  17: ( 0, 1,-1)  18: ( 0,-1, 1)
-
-OPP = [0, 2,1, 4,3, 6,5, 8,7, 10,9, 12,11, 14,13, 16,15, 18,17]
-```
-
-**Collision (BGK):**
-
-```
-f_i*(x,t) = f_i(x,t) − (1/τ) · ( f_i − f_i^eq )
-f_i^eq    = w_i · ρ · [ 1 + 3(c_i·u) + 4.5(c_i·u)² − 1.5|u|² ]
-```
-
-**Streaming:** `f_i(x, t+1) = f_i*(x − c_i, t)` (pull form: each thread reads from its upstream neighbors and writes only to its own cell, which gives coalesced writes and no write races).
-
-**Macroscopic recovery:**
-
-```
-ρ   = Σ f_i
-ρu  = Σ f_i c_i
-p   = ρ / 3          (lattice units, c_s² = 1/3)
-ν   = (2τ − 1) / 6   (lattice units)
-```
-
-**Stability limits to enforce in the UI (not just document):**
-
-| Quantity           | Safe range                                  | Why                                    |
-| ------------------ | ------------------------------------------- | -------------------------------------- | ----------------------- | --------------------------------------- |
-| `τ`                | > 0.5, practically **≥ 0.505–0.52** for BGK | Viscosity → 0 makes BGK blow up        |
-| Lattice velocity ` | u                                           | `                                      | **≤ 0.1** (Mach ≲ 0.17) | LBM is weakly compressible; error ∝ Ma² |
-| Density            | stays near 1.0                              | Large excursions mean you are unstable |
-
-If Re is high, BGK alone will go unstable. Plan for **Smagorinsky LES** (cheap) and later **TRT / MRT / regularized / cumulant** collision (see [roadmap](#18-roadmap)).
-
-## 6. Units, scaling, and choosing parameters
-
-This is the section most LBM projects get wrong. The solver works in **lattice units** (Δx = Δt = 1). You map to physical units with three numbers.
-
-```
-Δx        = L_phys / L_lat                 (metres per cell)
-Δt        = u_lat · Δx / U_phys            (seconds per step)
-ν_lat     = (2τ − 1) / 6
-Re        = U_phys · L_phys / ν_phys  =  u_lat · L_lat / ν_lat
-```
-
-**Workflow:**
-
-1. Pick the model's characteristic length in cells, `L_lat` (e.g. 32 cells across a 128³ domain).
-2. Pick `u_lat` (start at **0.05**).
-3. Choose `τ`, which fixes the Reynolds number the simulation can represent:
-
-| `τ`   | `ν_lat` | Re at `L_lat=32, u_lat=0.05`      |
-| ----- | ------- | --------------------------------- |
-| 0.60  | 0.0333  | ~48                               |
-| 0.55  | 0.0167  | ~96                               |
-| 0.51  | 0.00333 | ~480                              |
-| 0.505 | 0.00167 | ~960 (needs LES/better collision) |
-
-Real cars/aircraft are at Re of 10⁶–10⁷. **A 128³ browser simulation cannot resolve that.** Be honest in the UI: label results as _qualitative_ unless validated at matching Re, and show the effective Re and Mach number on screen.
-
-**Domain sizing rules of thumb (L = model length, H = height):**
-
-- Upstream of the body: **≥ 1–2 L**
-- Downstream: **≥ 4–6 L** (wake needs room; shorter boxes reflect pressure waves)
-- Sides / top: **≥ 1.5–2 H** each, or use free-slip walls
-- **Blockage ratio** (frontal area / cross-section) **< 5 %**, otherwise forces are inflated
-
-This means a 128³ cube is usually a _long box_ (e.g. 256×96×96 or 192×96×96), not a cube. The spec assumes a cube; allow arbitrary `nx, ny, nz`.
-
-## 7. GPU memory layout and limits
-
-**SoA index:** `dist[i * N + node]`, with `node = x + nx*(y + ny*z)` and `N = nx*ny*nz`.
-
-**Per-node cost (ping-pong, f32):**
-
-```
-2 buffers × 19 dirs × 4 B = 152 B
-+ flags (u32) 4 B
-+ velocity/pressure texture (rgba16float) 8 B
-≈ 164 B / node
-```
-
-| Grid | Nodes      | Total VRAM | One distribution buffer |
-| ---- | ---------- | ---------- | ----------------------- |
-| 64³  | 262 144    | ~43 MB     | ~20 MB                  |
-| 128³ | 2 097 152  | ~344 MB    | ~159 MB                 |
-| 192³ | 7 077 888  | ~1.16 GB   | ~538 MB                 |
-| 256³ | 16 777 216 | ~2.75 GB   | ~1.27 GB                |
-
-### The default-limit trap
-
-WebGPU's **default** `maxStorageBufferBindingSize` is **128 MiB (134 217 728 B)** and default `maxBufferSize` is **256 MiB**. The spec's 128³ distribution buffer is ~159 MB, so **it fails on default limits.** Options:
-
-1. **Request higher limits** from the adapter (most desktop GPUs allow ≥ 1–2 GiB). Do this first.
-2. **Split by direction:** use several storage buffers (e.g. 19 separate or 5 groups) and bind them all. Watch `maxStorageBuffersPerShaderStage` (default 8 on some tiers; request more). This works on weaker adapters.
-3. **Use the AA-pattern / "esoteric twist" scheme** to keep **one** distribution buffer instead of two (halves memory, ~76 B/node, makes 256³ ≈ 1.3 GB). More complex indexing but a well-documented optimization.
-4. **Store distributions as `f_i − w_i`** (shifted populations) for better f32 precision; later optionally store as f16 to halve bandwidth (precision tradeoffs apply).
-
-### Other layout notes
-
-- **Uniform struct alignment:** `vec3` is 16-byte aligned. Put a scalar right after each `vec3` to fill the padding (as the reference shader below does), and keep the total size a multiple of 16.
-- **Flags:** use `u32` bitfields so you can pack more than "solid": `bit0 = solid`, `bit1 = inlet`, `bit2 = outlet`, `bit3 = moving wall`, `bit4 = near-surface (for forces)`.
-- **Precision of the render texture:** `rgba16float` has ~3 significant decimal digits. Density deviations in LBM are ~10⁻³–10⁻², so storing raw `ρ` near 1.0 **destroys the pressure signal**. Store `(ρ − 1) · scale` (or `p − p∞`) instead.
-- **Particle buffer (32 B/particle):** `pos: vec3<f32>`, `age: f32`, `vel: vec3<f32>`, `seed/life: f32`. 200k × 32 B = 6.4 MB.
-
-## 8. Reference WGSL (fused stream + collide)
-
-The original spec's shader is a stub, and its "bounce-back" (`if solid { return; }`) does not implement bounce-back; it just skips the cell. This is a corrected reference you can start from. It implements pull streaming, half-way bounce-back, an equilibrium inlet, and BGK with optional Smagorinsky.
-
-```wgsl
-// lbm.wgsl
-struct Params {
-  grid  : vec3<u32>,   // nx, ny, nz
-  tau   : f32,         // base relaxation time
-  inlet : vec3<f32>,   // inlet velocity (lattice units)
-  cs    : f32,         // Smagorinsky constant (0 = off)
-};
-
-@group(0) @binding(0) var<storage, read>       f_in  : array<f32>;
-@group(0) @binding(1) var<storage, read_write> f_out : array<f32>;
-@group(0) @binding(2) var<storage, read>       flags : array<u32>;
-@group(0) @binding(3) var<uniform>             P     : Params;
-
-const SOLID  : u32 = 1u;
-const INLET  : u32 = 2u;
-const OUTLET : u32 = 4u;
-
-// Use var<private> (not const) so these can be indexed dynamically.
-var<private> C : array<vec3<i32>, 19> = array<vec3<i32>, 19>(
-  vec3( 0, 0, 0),
-  vec3( 1, 0, 0), vec3(-1, 0, 0), vec3( 0, 1, 0), vec3( 0,-1, 0), vec3( 0, 0, 1), vec3( 0, 0,-1),
-  vec3( 1, 1, 0), vec3(-1,-1, 0), vec3( 1,-1, 0), vec3(-1, 1, 0),
-  vec3( 1, 0, 1), vec3(-1, 0,-1), vec3( 1, 0,-1), vec3(-1, 0, 1),
-  vec3( 0, 1, 1), vec3( 0,-1,-1), vec3( 0, 1,-1), vec3( 0,-1, 1)
-);
-var<private> W : array<f32, 19> = array<f32, 19>(
-  1.0/3.0,
-  1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0, 1.0/18.0,
-  1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0,
-  1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0, 1.0/36.0
-);
-var<private> OPP : array<u32, 19> = array<u32, 19>(
-  0u, 2u,1u, 4u,3u, 6u,5u, 8u,7u, 10u,9u, 12u,11u, 14u,13u, 16u,15u, 18u,17u
-);
-
-fn feq(i: u32, rho: f32, u: vec3<f32>) -> f32 {
-  let cu = dot(vec3<f32>(C[i]), u);
-  return W[i] * rho * (1.0 + 3.0*cu + 4.5*cu*cu - 1.5*dot(u, u));
-}
-
-@compute @workgroup_size(8, 8, 4)   // 256 invocations: the default WebGPU maximum
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let g = P.grid;
-  if (any(id >= g)) { return; }
-
-  let N    = g.x * g.y * g.z;
-  let node = id.x + g.x * (id.y + g.y * id.z);
-  let fl   = flags[node];
-
-  if ((fl & SOLID) != 0u) { return; }          // solid cells hold no fluid
-
-  // ---- Pull streaming with half-way bounce-back ----
-  var f : array<f32, 19>;
-  for (var i = 0u; i < 19u; i++) {
-    let src = vec3<i32>(id) - C[i];
-    var v : f32;
-    let inside = all(src >= vec3<i32>(0)) && all(src < vec3<i32>(g));
-    if (inside) {
-      let s = u32(src.x) + g.x * (u32(src.y) + g.y * u32(src.z));
-      if ((flags[s] & SOLID) != 0u) {
-        v = f_in[OPP[i] * N + node];           // reflect own post-collision population
-      } else {
-        v = f_in[i * N + s];
-      }
-    } else {
-      v = f_in[OPP[i] * N + node];             // placeholder: replace with real domain BCs
-    }
-    f[i] = v;
-  }
-
-  // ---- Macroscopic moments ----
-  var rho = 0.0;
-  var m   = vec3<f32>(0.0);
-  for (var i = 0u; i < 19u; i++) {
-    rho += f[i];
-    m   += f[i] * vec3<f32>(C[i]);
-  }
-  var u = m / rho;
-
-  // ---- Inlet: impose equilibrium at prescribed velocity ----
-  if ((fl & INLET) != 0u) { rho = 1.0; u = P.inlet; }
-
-  // ---- Optional Smagorinsky LES: local effective tau ----
-  var tau = P.tau;
-  if (P.cs > 0.0) {
-    // Non-equilibrium momentum flux tensor Π^neq
-    var pxx=0.0; var pyy=0.0; var pzz=0.0; var pxy=0.0; var pxz=0.0; var pyz=0.0;
-    for (var i = 0u; i < 19u; i++) {
-      let fn_ = f[i] - feq(i, rho, u);
-      let c = vec3<f32>(C[i]);
-      pxx += c.x*c.x*fn_; pyy += c.y*c.y*fn_; pzz += c.z*c.z*fn_;
-      pxy += c.x*c.y*fn_; pxz += c.x*c.z*fn_; pyz += c.y*c.z*fn_;
-    }
-    let Q = sqrt(pxx*pxx + pyy*pyy + pzz*pzz + 2.0*(pxy*pxy + pxz*pxz + pyz*pyz));
-    let cs2 = P.cs * P.cs;
-    tau = 0.5 * (P.tau + sqrt(P.tau*P.tau + 18.0 * 1.41421356 * cs2 * Q / rho));
-    // NOTE: verify this formula against a reference before relying on it (see Validation).
-  }
-
-  // ---- BGK collide + write own cell (coalesced) ----
-  let omega = 1.0 / tau;
-  for (var i = 0u; i < 19u; i++) {
-    let fe = feq(i, rho, u);
-    if ((fl & INLET) != 0u) {
-      f_out[i * N + node] = fe;                         // inlet: pure equilibrium
-    } else {
-      f_out[i * N + node] = f[i] - omega * (f[i] - fe); // BGK
-    }
-  }
-}
-```
-
-> The Smagorinsky formula is included as a starting point and **must be validated** (e.g. against a published implementation) before you trust it. Start with `cs = 0` and get plain BGK correct first.
-
-**Workgroup size note:** the original spec uses `@workgroup_size(8,8,8)` = **512 invocations**. WebGPU's default `maxComputeInvocationsPerWorkgroup` is **256**, so that pipeline **fails to compile on default limits**. Use `(8,8,4)`, `(4,8,8)`, or `(64,1,1)`/`(32,4,2)` variants and benchmark. The claim that 512 "perfectly matches warp bounds" is not accurate; warps are 32 (NVIDIA), 32 or 64 (AMD), 32 (Apple), and any multiple works. Tune empirically.
-
-## 9. Boundary conditions
-
-The spec mentions only solids and "inlet/outlet flags". A wind tunnel needs all of these defined:
-
-| Boundary         | Recommended approach                                                | Notes                                                                                                                       |
-| ---------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Model surface    | **Half-way bounce-back** (above)                                    | Second order is possible with interpolated bounce-back (Bouzidi) for curved surfaces; staircase voxels give a rough surface |
-| Inlet (−X)       | Equilibrium at (ρ=1, u=U) to start; **Zou-He** or regularized later | Equilibrium inlet is robust but slightly reflective                                                                         |
-| Outlet (+X)      | **Zero-gradient / convective** (`f(nx−1) = f(nx−2)`)                | A hard reflection here corrupts the whole domain                                                                            |
-| Side / top walls | **Free-slip** (specular reflection) or periodic                     | No-slip walls create a boundary layer and raise effective blockage                                                          |
-| Floor            | Free-slip, or no-slip + **moving wall** (rolling road) for cars     | Moving-wall bounce-back adds `2 w_i ρ (c_i·u_w)/c_s²`                                                                       |
-| Domain corners   | Define precedence (solid > inlet > outlet > wall)                   | Corner cells are a classic source of NaNs                                                                                   |
-
-**Initialization:** fill every cell with `f_i = feq(ρ=1, u=U_inlet)` (impulsive start) or ramp the inlet velocity over a few thousand steps. An impulsive start sends a strong pressure wave through the domain; a ramp is gentler and more stable.
-
-## 10. Mesh voxelization
-
-The spec's "SAT compute shader" produces a **surface shell only**. To get a solid you also need:
-
-1. **Normalize the model:** compute AABB, center, uniformly scale to fit the target `L_lat`, apply user rotation (angle of attack, yaw). Do this once on CPU; upload transformed vertices.
-2. **Triangle-box SAT:** one thread per triangle, loop over the triangle's voxel AABB, test the 13 axes (3 box normals, 1 triangle normal, 9 edge cross-products). Write `flags[node] |= SOLID` using `atomicOr` (or `atomicStore` of a constant; all writers write the same value, but use atomics to stay spec-correct).
-3. **Interior fill** (required for closed meshes), choose one:
-   - **Ray-parity:** cast a +X ray per (y,z) column, toggle inside/outside at each triangle crossing. Fast on GPU; breaks on non-watertight meshes and at grazing edges.
-   - **Flood fill from the outside:** BFS/iterative dilation of "exterior" from a domain corner; everything not reached and not shell is interior. Robust but needs several passes.
-4. **Mesh hygiene (CPU side, with clear errors):** non-manifold edges, holes, flipped normals, degenerate triangles, units (mm vs m), huge triangle counts. Offer a decimation warning above ~1–2 M triangles.
-5. **Don't claim "a fraction of a millisecond"** without a triangle count. Cost scales with triangles × voxels-per-triangle; a 1M-triangle car at coarse resolution is closer to a few ms.
-6. **Thin features** (mirrors, antennas, trailing edges thinner than a cell) vanish or turn into leaks. Warn the user and offer conservative (thickened) voxelization.
-
-**Re-voxelization at runtime:** clear flags → voxelize → fill → _re-initialize newly-fluid cells_ (set to equilibrium at local ρ, u) and zero newly-solid cells. Skipping this when the user drags/rotates the model produces pressure spikes.
-
-## 11. Force & coefficient measurement
-
-Not in the original spec, but it is what turns a visual toy into a wind tunnel.
-
-**Momentum-exchange method:** for every fluid cell `x_f` adjacent to a solid via direction `i`:
-
-```
-F += c_i · ( f_i*(x_f) + f_opp(i)(x_f) )         // per boundary link, lattice units
-```
-
-Sum over all links on the GPU (workgroup reduction → atomics or a second reduction pass), read back asynchronously every N frames (`mapAsync` on a small staging buffer; never block the frame).
-
-```
-Cd = F_x / ( 0.5 · ρ · U² · A_ref )
-Cl = F_y / ( 0.5 · ρ · U² · A_ref )
-```
-
-`A_ref` is the model's frontal (projected) area in cells². Compute it by projecting the voxelized solid along X. Show force-vs-time and a **time-averaged** Cd (drag oscillates with vortex shedding). Discard the initial transient.
-
-## 12. Visualization
-
-**Macroscopic pass:** compute ρ, u per cell from the distributions into `velocity_pressure_tex` (3D, `rgba16float`, write-only storage in compute, sampled in render). Pack `rgb = u`, `a = (ρ−1)·scale`.
-
-**Volume raymarcher (fragment shader, full-screen or box proxy):**
-
-- Ray-box intersection with the domain AABB, fixed step count (64–256) with jittered start to hide banding.
-- Transfer function: 1D colormap texture; ship **perceptually uniform** maps (viridis / turbo), not rainbow.
-- Selectable scalar: speed, pressure, vorticity magnitude, **Q-criterion** (much better vortex visualization than raw vorticity). Compute vorticity/Q in the macro pass with central differences into a second texture channel or texture.
-- Early ray termination on accumulated opacity; render at half resolution + upsample on slow GPUs.
-- Slice planes (x/y/z) are cheap and often more readable than a full volume. Offer both.
-
-**Particles (compute + render):**
-
-- RK2 (midpoint) advection with **trilinear** sampling of the velocity texture (use `textureSampleLevel` with a linear sampler).
-- Convert lattice velocity to cells/step and scale by a user "flow speed" factor.
-- **Respawn** particles that leave the domain, enter a solid, or exceed lifetime; spawn them near the inlet with a seeded hash RNG (no `Math.random` on GPU).
-- Render as instanced camera-facing quads or short line trails (ping-pong a fading trail texture or store a short history). Color by speed. Skip depth writes, use additive blending.
-- **Smoke / streak lines** (continuous seeding from a rake) read more like a real wind tunnel than uniform random particles. Offer a seed-rake tool.
-
-**UI essentials:** orbit camera, FPS + sim-steps/s + MLUPS readout, effective Re and Mach, Cd/Cl plot, pause/step, wireframe of the model, domain box, colorbar with units.
-
-## 13. Benchmarking
-
-**Current development hardware:** testing on a gaming laptop with an **AMD Ryzen 5 7535HS** processor. The app currently reports the selected WebGPU adapter vendor as **AMD**. The 7535HS identifies the CPU, not the GPU; the exact mobile GPU model and its memory configuration have not yet been confirmed. This records the current test environment, not a solver performance benchmark.
-
-**Shader benchmark note:** initialization and stream/collide correctness have automated checks, including uneven grids, analytical vortex decay, forced channel profiles, and basic static-sphere coupling. Performance has not been benchmarked; no GPU ms/step or MLUPS measurements are claimed. Passing these low-speed laminar checks does not replace experimental validation of model aerodynamics.
-
-The spec's numbers (RTX 4090 1.12 ms, 1 872 MLUPS, etc.) are arithmetic-consistent (`2 097 152 / t`), but they are **targets, not measurements**, and they ignore WebGPU overhead (validation, command encoding, browser scheduling). Measure your own.
-
-- **GPU time:** use `timestamp-query` (when available) with `timestampWrites` on compute passes. Report **median** and **p95** over ≥ 1 000 steps after a warm-up.
-- **Wall time:** also measure with `device.queue.onSubmittedWorkDone()`.
-- **MLUPS** = `(nx·ny·nz · steps) / seconds / 1e6`.
-- **Bandwidth sanity check:** each step moves ≈ `152 B × N` (19 reads + 19 writes, f32) plus flags. Compare to the GPU's memory bandwidth to see how close you are to the roofline. LBM is **memory-bound**, so if you are far below it, look at coalescing, workgroup shape, and branch divergence from the solid/fluid test.
-- Log browser, OS, GPU, driver, grid size, workgroup size, K sub-steps, and f32 vs f16 with every result.
-
-| GPU         | Grid | Workgroup | ms/step | MLUPS | Date |
-| ----------- | ---- | --------- | ------- | ----- | ---- |
-| _(fill in)_ |      |           |         |       |      |
-
-## 14. Validation suite
-
-Build these **before** adding visual polish. A pretty simulation that is wrong is worse than an ugly one that is right.
-
-| Test                                    | What it checks                      | Expected                                                     |
-| --------------------------------------- | ----------------------------------- | ------------------------------------------------------------ |
-| **Uniform flow, no obstacle**           | Inlet/outlet BCs, no spurious drift | Constant `u`, ρ ≈ 1                                          |
-| **Poiseuille (channel) flow**           | Viscosity, wall BC                  | Parabolic profile matching analytic solution                 |
-| **Taylor-Green vortex**                 | Viscosity ↔ τ mapping, solver order | Exponential decay at the analytic rate                       |
-| **Lid-driven cavity (Re 100/400/1000)** | Full 3D solver                      | Match Ghia et al. centerline profiles                        |
-| **Flow past a sphere**                  | Obstacle BC, forces                 | Cd ≈ 1.09 at Re 100 (± few %)                                |
-| **Flow past a cylinder (2.5D)**         | Vortex shedding                     | Strouhal ≈ 0.16–0.17 at Re 100                               |
-| **Grid convergence**                    | Numerical accuracy                  | Error decreases as resolution doubles                        |
-| **Mass conservation**                   | No leaks                            | Σρ constant (closed domain)                                  |
-| **CPU reference**                       | Shader correctness                  | GPU result matches a simple TypeScript/Python D3Q19 to ~1e-5 |
-
-Automate these as headless tests (e.g. Playwright with a WebGPU-enabled Chromium flag) so every shader change gets regression-checked. Also add a **NaN/Inf detector** (see below).
-
-## 15. Known pitfalls in the original spec
-
-A quick list of things to fix or reconsider before implementing:
-
-1. **`@workgroup_size(8,8,8)` = 512 invocations exceeds the default 256 limit.** Use ≤ 256 or request a higher limit (and still expect many GPUs to cap at 256).
-2. **Distribution buffers (~159 MB) exceed the default 128 MiB storage-binding limit.** Request higher limits or split the buffers.
-3. **"Bounce-back" is `return`.** That skips the cell; it does not reflect populations. See [section 8](#8-reference-wgsl-fused-stream--collide).
-4. **Voxelizer yields a shell, not a solid.** Interior fill is missing.
-5. **Domain assumed cubic.** Wind tunnels want long, thin domains.
-6. **No outlet/side/floor boundary definitions.**
-7. **No unit mapping** (lattice ↔ physical), no Mach/Re safeguards.
-8. **No force measurement** (drag/lift), the core output of a wind tunnel.
-9. **`rgba16float` pressure** loses the tiny density deviations; store `ρ−1`.
-10. **"100 % coalescing"** is overstated. Pull-streaming reads at shifted offsets and will not be perfectly aligned; writes are coalesced. Treat as "good", not "perfect".
-11. **TDR guidance is misleading.** Splitting across multiple _command buffers_ does not shorten any single dispatch. If one dispatch is too long, split the **work** (z-slabs/tiles) across several dispatches or submits. In browsers, also expect watchdog timers; keep per-submit GPU time small (tens of ms).
-12. **Benchmarks are unverified targets**, and "PRODUCTION READY / 2.4.0-RELEASE" is premature for a design that has no working shader. Mark versions honestly.
-13. **256³ is under-specified.** At ~2.75 GB (or 1.27 GB per buffer) it needs buffer splitting or the AA-pattern; it is not just a bigger dispatch.
-14. **Uniform struct padding** is not specified (`vec3` alignment). Make it explicit.
-15. **BGK at low viscosity is unstable**; the spec has no collision upgrade path or LES.
-
-## 16. Stability & robustness
-
-- **NaN/blow-up detection:** every N steps run a tiny reduction that flags `!isFinite(ρ)`, `ρ ≤ 0`, or `|u| > 0.3`. On trigger: pause, show a message ("Simulation unstable: increase τ, lower inlet speed, or refine the grid"), offer auto-fix.
-- **Inlet ramp:** accelerate from 0 to target speed over a few hundred to few thousand steps.
-- **Clamp** lattice velocity in the macroscopic pass for rendering, not in the solver.
-- **Device loss:** handle `device.lost`, rebuild resources, restore from equilibrium.
-- **Tab visibility:** pause simulation when hidden (`document.visibilityState`).
-- **Dispatch pacing:** adapt K (sub-steps/frame) to hold ~12–14 ms of GPU work per frame; never queue unbounded work.
-- **Error scopes:** wrap resource creation with `device.pushErrorScope("validation")` / `popErrorScope()` and surface errors in the UI during development.
-- **Determinism:** seed all RNG; identical inputs should produce identical results on the same GPU (useful for regression tests).
-
-## 17. Project structure
-
-```
-webgpu-windtunnel/
-├─ README.md
-├─ index.html
-├─ package.json
-├─ src/
-│  ├─ main.ts                 # bootstrap, feature detection, main loop
-│  ├─ gpu/
-│  │  ├─ device.ts            # adapter/device, limits, device-lost handling
-│  │  ├─ buffers.ts           # SoA buffers, ping-pong, bind groups
-│  │  ├─ timing.ts            # timestamp queries, MLUPS
-│  │  └─ debug.ts             # error scopes, NaN detector, readback helpers
-│  ├─ sim/
-│  │  ├─ lbm.ts               # pipeline setup, step scheduling, sub-stepping
-│  │  ├─ units.ts             # lattice ↔ physical conversion, Re/Ma checks
-│  │  ├─ boundaries.ts        # BC flag setup (inlet/outlet/walls)
-│  │  └─ forces.ts            # momentum exchange + async readback
-│  ├─ geometry/
-│  │  ├─ loaders.ts           # OBJ / glTF parsing
-│  │  ├─ normalize.ts         # fit/center/rotate into domain
-│  │  ├─ voxelize.ts          # SAT shell + interior fill dispatch
-│  │  └─ validate.ts          # watertightness, degenerate triangles
-│  ├─ render/
-│  │  ├─ volume.ts            # raymarcher
-│  │  ├─ particles.ts         # RK2 advection + draw
-│  │  ├─ slices.ts
-│  │  ├─ colormaps.ts
-│  │  └─ camera.ts
-│  ├─ ui/
-│  │  ├─ panel.ts             # controls (Re, speed, AoA, view mode)
-│  │  ├─ plots.ts             # Cd/Cl vs time
-│  │  └─ overlays.ts          # Re, Mach, MLUPS, warnings
-│  └─ shaders/
-│     ├─ lbm.wgsl
-│     ├─ init.wgsl
-│     ├─ macroscopic.wgsl
-│     ├─ voxelize_sat.wgsl
-│     ├─ voxelize_fill.wgsl
-│     ├─ forces.wgsl
-│     ├─ particles.wgsl
-│     └─ volume.wgsl
-├─ tests/
-│  ├─ cpu_reference/          # slow, simple D3Q19 for comparison
-│  └─ validation/             # Poiseuille, Taylor-Green, sphere Cd, ...
-└─ assets/models/             # sample OBJ/glTF (sphere, cylinder, car, wing)
-```
-
-## 18. Roadmap
-
-**Milestone 1: Correct solver (no graphics beyond a slice)**
-
-- [x] Startup device setup with limit checks and smaller-grid fallbacks
-- [ ] Higher-limit device requests for larger grids
-- [x] D3Q19 fused kernel, ping-pong, init to equilibrium
-- [x] Basic equilibrium inlet / first-order outlet / free-slip side walls
-- [x] Pause, step, reset, inlet ramp, and whole-grid stability diagnostics
-- [x] 2D slice render of speed and pressure inside an orbitable Three.js tunnel
-- [x] CPU reference, rest/uniform-flow checks, and periodic mass conservation
-- [x] Poiseuille and Taylor-Green tests passing, with two-resolution refinement checks
-
-**Milestone 2: Obstacles and forces**
-
-- [x] Stationary sphere with solid-cell preparation and half-way bounce-back
-- [ ] Cylinder obstacle
-- [ ] Momentum-exchange forces, Cd and Strouhal validation
-- [ ] Unit mapping, Re/Ma readout, stability guards
-
-**Milestone 3: CAD pipeline**
-
-- [ ] OBJ / glTF loader, normalize, SAT voxelization, interior fill
-- [ ] Live rotate / move with correct re-initialization
-- [ ] Mesh validation warnings
-
-**Milestone 4: Visualization**
-
-- [ ] Volume raymarcher with colormaps and Q-criterion
-- [ ] RK2 particles, seed rake, trails
-- [ ] Probe tool, colorbars, screenshots / video capture
-
-**Milestone 5: Performance & accuracy**
-
-- [ ] Workgroup / layout tuning, benchmark table filled in
-- [ ] AA-pattern single-buffer streaming
-- [ ] f16 population storage (optional)
-- [ ] Smagorinsky LES → TRT / MRT / cumulant collision
-- [ ] Interpolated bounce-back (Bouzidi) for curved surfaces
-- [ ] Moving-wall rolling road
-- [ ] Adaptive sub-stepping to frame budget
-
-**Deferred: immersive tunnel workspace (much later)**
-
-Schedule this visual redesign after the core simulation logic, model handling, and flow visualization work reliably.
-
-- [ ] Build a dedicated full-page tunnel workspace with the 3D scene as the main experience.
-- [ ] Create a room-like wind-tunnel environment with a clear sense of scale, depth, lighting, and surroundings.
-- [ ] Integrate visible wind streams, particle trails, and wake visualization driven by the simulated flow.
-- [ ] Arrange simulation controls and analysis tools around the scene without obscuring the model or airflow.
-- [ ] Make slice planes and cell grids optional inspection overlays.
-
-**Stretch**
-
-- [ ] Multi-resolution / local grid refinement
-- [ ] Thermal coupling (D3Q7 advection-diffusion)
-- [ ] Export: forces CSV, VTK volume, glTF streamlines
-- [ ] Shareable URLs for scene settings
-- [ ] Mobile-friendly reduced-resolution mode
-
-## 19. References
-
-- Krüger et al., _The Lattice Boltzmann Method: Principles and Practice_ (Springer, 2017). The standard textbook.
-- Lehmann, M. et al., work on **FluidX3D** (OpenCL LBM) for memory-efficient layouts and the esoteric-twist streaming scheme. The best reference for performance ideas.
-- Zou & He (1997), pressure and velocity boundary conditions for LBM.
-- Bouzidi, Firdaouss & Lallemand (2001), interpolated bounce-back.
-- Ghia, Ghia & Shin (1982), lid-driven cavity benchmark data.
-- WebGPU and WGSL specifications (W3C); `maxComputeInvocationsPerWorkgroup`, `maxStorageBufferBindingSize` and friends are listed under "Limits".
-
----
+Keep current capabilities separate from future goals. Changes to physics or shaders should include relevant validation and a performance note; performance figures should come from measurements. Passing basic benchmarks does not guarantee accuracy for arbitrary uploaded models.
 
 ## License
 
-MIT
-
-## Contributing
-
-Open an issue before large changes. Any change to a shader should come with a passing validation test and a benchmark note.
+[MIT](LICENSE.md).

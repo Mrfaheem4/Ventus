@@ -1,6 +1,9 @@
 import lbmShader from "../shaders/lbm.wgsl?raw";
 import macroShader from "../shaders/macroscopic.wgsl?raw";
 import obstacleShader from '../shaders/obstacles.wgsl?raw';
+import forceShader from '../shaders/forces.wgsl?raw';
+import { buildSurfaceLinks, forceSample } from './forces';
+import type { ForceSample } from './forces';
 import { createObstacle } from '../geometry/sphere';
 import type { GPUContext } from "../gpu/device";
 import { initializeFluid } from "./initialize";
@@ -14,6 +17,7 @@ export interface FlowStats {
   densityMax: number;
   maxSpeed: number;
   invalidCells: number;
+  forces?: ForceSample | null;
 }
 
 export async function createSolver(
@@ -25,7 +29,10 @@ export async function createSolver(
   validateSettings(settings);
   signal.throwIfAborted();
   const { device, resources, grid } = context;
-  const obstacle = createObstacle(grid, settings.obstacle);
+  const obstacle = createObstacle(grid, settings.obstacle, settings.sphereRadius);
+  const surfaceLinks = obstacle.solidCells ? buildSurfaceLinks(grid, obstacle) : new Uint32Array();
+  const forceGroups = Math.ceil(surfaceLinks.length/2/64);
+  let lastForceSamples: ForceSample[] = [];
   const owned: GPUBuffer[] = [];
   let disposed = false;
   let busy = false;
@@ -94,7 +101,7 @@ export async function createSolver(
     );
     const readback = buffer(
       "Flow health readback",
-      16,
+      16 + forceGroups*16*16,
       GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     );
     async function module(label: string, code: string) {
@@ -215,6 +222,28 @@ export async function createSolver(
         ],
       }),
     );
+    let forcePipeline: GPUComputePipeline | undefined;
+    let forcePartials: GPUBuffer | undefined;
+    let forceBindGroups: GPUBindGroup[] = [];
+    if (forceGroups) {
+      const links = buffer('Fluid-solid surface links', surfaceLinks.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+      device.queue.writeBuffer(links, 0, surfaceLinks);
+      forcePartials = buffer('Per-step force partials', forceGroups*16*16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+      const forceLayout = device.createBindGroupLayout({ entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 48 } },
+      ] });
+      const shader = await module('Momentum exchange on stationary solids', forceShader);
+      forcePipeline = await device.createComputePipelineAsync({ label: 'Body force reduction',
+        layout: device.createPipelineLayout({ bindGroupLayouts: [forceLayout] }), compute: { module: shader, entryPoint: 'main' } });
+      checkActive();
+      forceBindGroups = resources.distributions.map((state) => device.createBindGroup({ layout: forceLayout, entries: [
+        { binding: 0, resource: { buffer: state } }, { binding: 1, resource: { buffer: links } },
+        { binding: 2, resource: { buffer: forcePartials! } }, { binding: 3, resource: { buffer: params, size: 48 } },
+      ] }));
+    }
     let solidPipeline: GPUComputePipeline | undefined;
     let solidGroup: GPUBindGroup | undefined;
     if (obstacle.solidCells) {
@@ -283,6 +312,13 @@ export async function createSolver(
           label: "Bounded airflow batch",
         });
         for (let i = 0; i < count; i++) {
+          if (forcePipeline) {
+            const forcePass = encoder.beginComputePass();
+            forcePass.setPipeline(forcePipeline);
+            forcePass.setBindGroup(0, forceBindGroups[current], [i*stride]);
+            forcePass.dispatchWorkgroups(forceGroups);
+            forcePass.end();
+          }
           const pass = encoder.beginComputePass();
           pass.setPipeline(pipeline);
           pass.setBindGroup(0, groups[current], [i * stride]);
@@ -304,6 +340,7 @@ export async function createSolver(
         );
         pass.end();
         encoder.copyBufferToBuffer(health, 0, readback, 0, 16);
+        if (forcePartials) encoder.copyBufferToBuffer(forcePartials, 0, readback, 16, forceGroups*16*16);
         device.queue.submit([encoder.finish()]);
         steps += count;
         // Mapping fences this batch before another can be queued: no unbounded GPU work.
@@ -311,6 +348,18 @@ export async function createSolver(
         checkActive();
         const data = readback.getMappedRange();
         const values = new Float32Array(data);
+        lastForceSamples = [];
+        for (let step = steps-count+1; forceGroups && step <= steps; step++) {
+          const force = [0,0,0];
+          let invalid = 0;
+          for (let group = 0; group < forceGroups; group++) {
+            const offset = 4+(((step-1)%16)*forceGroups+group)*4;
+            for (let axis = 0; axis < 3; axis++) force[axis] += values[offset+axis];
+            invalid += values[offset+3];
+          }
+          if (invalid) throw new Error('Invalid fluid populations encountered during force measurement.');
+          lastForceSamples.push(forceSample(step, force, inletSpeed(step, settings), obstacle.sphere!.radius*2, settings.tau, step >= settings.rampSteps));
+        }
         stats = {
           steps,
           inletSpeed: inletSpeed(steps, settings),
@@ -318,6 +367,7 @@ export async function createSolver(
           densityMax: values[1],
           maxSpeed: values[2],
           invalidCells: new Uint32Array(data)[3],
+          forces: lastForceSamples.at(-1) ?? null,
         };
         readback.unmap();
         if (
@@ -369,6 +419,7 @@ export async function createSolver(
         prepareSolids();
         current = 0;
         steps = 0;
+        lastForceSamples = [];
         failed = false;
         stats = {
           steps: 0,
@@ -377,6 +428,7 @@ export async function createSolver(
           densityMax: 1,
           maxSpeed: 0,
           invalidCells: 0,
+          forces: null,
         };
         return { ...stats };
       } finally {
@@ -395,6 +447,8 @@ export async function createSolver(
       },
       settings: { ...settings },
       obstacle,
+      get lastForceSamples() { return lastForceSamples.map((sample) => ({ ...sample })); },
+      get scratchBytes() { return owned.reduce((sum, buffer) => sum+buffer.size, 0); },
     };
   }
   try {

@@ -12,6 +12,7 @@ export interface SolverSettings {
   boundaryMode: BoundaryMode;
   acceleration: number;
   obstacle: ObstacleKind;
+  sphereRadius?: number;
 }
 export const DEFAULT_SETTINGS: SolverSettings = {
   targetSpeed: 0.03,
@@ -22,6 +23,9 @@ export const DEFAULT_SETTINGS: SolverSettings = {
   obstacle: 'none',
 };
 export function validateSettings(settings: SolverSettings) {
+  if (settings.sphereRadius !== undefined && (!Number.isFinite(settings.sphereRadius) || settings.sphereRadius <= 0 || settings.obstacle !== 'sphere')) {
+    throw new Error('A custom radius requires a sphere and must be positive and finite.');
+  }
   if (!['none', 'sphere'].includes(settings.obstacle)) throw new Error('Unknown static obstacle.');
   if (settings.obstacle !== 'none' && settings.boundaryMode === 'channel') throw new Error('Channel verification does not include obstacles.');
   if (

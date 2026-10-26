@@ -1,5 +1,7 @@
 # Analytical solver validation
 
+Sphere forces have a separate [measurement and domain study](sphere-drag.md), run with `npm run study:drag`.
+
 These tests exercise the production D3Q19 WGSL solver on a real WebGPU adapter. They are two-dimensional laminar solutions extruded through a three-dimensional grid. Passing them does not validate automotive turbulence, arbitrary uploaded geometry, or force coefficients.
 
 Run `npm test -- tests/validation/analytical.spec.ts`. On Windows with Edge installed, set `$env:VENTUS_BROWSER_CHANNEL = 'msedge'` and use `npm.cmd test -- tests/validation/analytical.spec.ts`.

@@ -17,6 +17,7 @@ export interface Obstacle {
 export function createObstacle(
   grid: Grid,
   kind: ObstacleKind = "none",
+  radiusOverride?: number,
 ): Obstacle {
   const solidFlags = new Uint32Array(grid.nx * grid.ny * grid.nz);
   if (kind === "none")
@@ -24,8 +25,17 @@ export function createObstacle(
   if (kind !== "sphere") throw new Error("Unknown static obstacle.");
   const sphere: Sphere = {
     center: [grid.nx * 0.3, grid.ny / 2, grid.nz / 2],
-    radius: Math.min(grid.ny, grid.nz) * 0.115,
+    radius: radiusOverride ?? Math.min(grid.ny, grid.nz) * 0.115,
   };
+  if (
+    !Number.isFinite(sphere.radius) ||
+    sphere.radius <= 0 ||
+    sphere.radius >= Math.min(grid.ny, grid.nz) / 2 - 1
+  ) {
+    throw new Error(
+      "Sphere radius must be positive and leave space at the tunnel sides.",
+    );
+  }
   if (
     sphere.center[0] - sphere.radius <= 1 ||
     sphere.center[0] + sphere.radius >= grid.nx - 1

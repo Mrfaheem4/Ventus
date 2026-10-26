@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GPUContext } from "../gpu/device";
 import { createSolver } from "../sim/lbm";
 import type { FlowStats, Solver } from "../sim/lbm";
-import { FlowViewer } from './FlowViewer';
-import { initializeFluid } from '../sim/initialize';
-import { createObstacle } from '../geometry/sphere';
-import type { ObstacleKind } from '../geometry/sphere';
+import { FlowViewer } from "./FlowViewer";
+import { initializeFluid } from "../sim/initialize";
+import { createObstacle } from "../geometry/sphere";
+import type { ObstacleKind } from "../geometry/sphere";
+import type { ForceSample } from "../sim/forces";
+import { ForcePanel } from "./ForcePanel";
 
 const initialStats: FlowStats = {
   steps: 0,
@@ -27,8 +29,12 @@ export function SolverPanel({ context }: { context: GPUContext }) {
   const [targetSpeed, setTargetSpeed] = useState(0.03);
   const [stats, setStats] = useState(initialStats);
   const [error, setError] = useState("");
-  const [obstacleKind, setObstacleKind] = useState<ObstacleKind>('sphere');
-  const obstacle = useMemo(() => createObstacle(context.grid, obstacleKind), [context.grid, obstacleKind]);
+  const [forceHistory, setForceHistory] = useState<ForceSample[]>([]);
+  const [obstacleKind, setObstacleKind] = useState<ObstacleKind>("sphere");
+  const obstacle = useMemo(
+    () => createObstacle(context.grid, obstacleKind),
+    [context.grid, obstacleKind],
+  );
 
   useEffect(() => {
     const abort = new AbortController();
@@ -61,7 +67,15 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         const next = reset
           ? await solver.current.reset()
           : await solver.current.step(count);
-        if (!abort.signal.aborted) setStats(next);
+        if (!abort.signal.aborted) {
+          setStats(next);
+          if (reset) setForceHistory([]);
+          else {
+            const sample = solver.current.lastForceSamples.at(-1);
+            if (sample)
+              setForceHistory((previous) => [...previous.slice(-599), sample]);
+          }
+        }
         return !abort.signal.aborted;
       } catch (failure) {
         if (!abort.signal.aborted) {
@@ -109,6 +123,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
     solver.current?.dispose();
     solver.current = null;
     setTargetSpeed(value);
+    setForceHistory([]);
   }
 
   async function changeObstacle(kind: ObstacleKind) {
@@ -116,7 +131,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
     if (!abort || abort.signal.aborted || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    setError('');
+    setError("");
     try {
       solver.current?.dispose();
       solver.current = null;
@@ -126,9 +141,15 @@ export function SolverPanel({ context }: { context: GPUContext }) {
       if (!abort.signal.aborted) {
         setObstacleKind(kind);
         setStats(initialStats);
+        setForceHistory([]);
       }
     } catch (failure) {
-      if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : 'Could not reset the scene.');
+      if (!abort.signal.aborted)
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "Could not reset the scene.",
+        );
     } finally {
       inFlight.current = false;
       if (!abort.signal.aborted) setBusy(false);
@@ -152,16 +173,37 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         Inlet at x = 0 → Wind along +X → Outlet at x = end
       </p>
       <div>
-        <label className="text-sm text-slate-300">Test scene
-          <select value={obstacleKind} disabled={running || busy} onChange={(event) => { void changeObstacle(event.target.value as ObstacleKind); }} className="ml-3 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 disabled:opacity-40">
-            <option value="sphere">Stationary sphere</option><option value="none">Empty tunnel</option>
+        <label className="text-sm text-slate-300">
+          Test scene
+          <select
+            value={obstacleKind}
+            disabled={running || busy}
+            onChange={(event) => {
+              void changeObstacle(event.target.value as ObstacleKind);
+            }}
+            className="ml-3 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 disabled:opacity-40"
+          >
+            <option value="sphere">Stationary sphere</option>
+            <option value="none">Empty tunnel</option>
           </select>
         </label>
-        <p className="mt-2 text-xs text-slate-400">Pause before changing the scene. Changing it resets the air and step counter.</p>
-        {obstacle.sphere && <p className="mt-2 text-xs leading-5 text-slate-400">
-          Sphere diameter: {(obstacle.sphere.radius*2).toFixed(2)} cells · {obstacle.solidCells} solid cells · Blockage: {(obstacle.blockage*100).toFixed(2)}% · Effective inlet Re: {(stats.inletSpeed*obstacle.sphere.radius*2/((0.6-0.5)/3)).toFixed(2)}.
-          {' '}This is a coarse, low-Reynolds-number demonstration. Drag and lift are not measured yet.
-        </p>}
+        <p className="mt-2 text-xs text-slate-400">
+          Pause before changing the scene. Changing it resets the air and step
+          counter.
+        </p>
+        {obstacle.sphere && (
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            Sphere diameter: {(obstacle.sphere.radius * 2).toFixed(2)} cells ·{" "}
+            {obstacle.solidCells} solid cells · Blockage:{" "}
+            {(obstacle.blockage * 100).toFixed(2)}% · Effective inlet Re:{" "}
+            {(
+              (stats.inletSpeed * obstacle.sphere.radius * 2) /
+              ((0.6 - 0.5) / 3)
+            ).toFixed(2)}
+            . This is a coarse, low-Reynolds-number demonstration. Force
+            readings are provisional.
+          </p>
+        )}
       </div>
       <div>
         <label htmlFor="inlet-speed" className="block text-sm text-slate-300">
@@ -228,11 +270,20 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           </div>
         ))}
       </dl>
-      <FlowViewer context={context} steps={stats.steps} targetSpeed={targetSpeed} obstacle={obstacle} />
+      {obstacle.sphere && (
+        <ForcePanel sample={stats.forces ?? null} history={forceHistory} />
+      )}
+      <FlowViewer
+        context={context}
+        steps={stats.steps}
+        targetSpeed={targetSpeed}
+        obstacle={obstacle}
+      />
       <p className="text-xs leading-5 text-slate-400">
         Density and speed checks cover every fluid cell after each batch. Side,
         top, and bottom boundaries are free-slip; there is no ground friction or
-        moving ground. Values use lattice units. The slice displays fluid values outside the selected obstacle.
+        moving ground. Values use lattice units. The slice displays fluid values
+        outside the selected obstacle.
       </p>
       {error && (
         <p

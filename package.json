@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test": "playwright test",
+    "study:drag": "playwright test --config playwright.study.config.ts"
   },
   "engines": {
     "node": ">=22.12.0"
