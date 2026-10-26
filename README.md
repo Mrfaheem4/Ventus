@@ -96,7 +96,7 @@ Installed tooling:
 - Vite, TypeScript, ESLint, and React lint plugins for development.
 - Tailwind CSS with the official `@tailwindcss/vite` plugin.
 - `@webgpu/types` configured in `tsconfig.app.json` for WebGPU APIs.
-- Three.js and its types for the planned OBJ/glTF loaders and orbit camera (`three/addons/`).
+- Three.js and its types for the orbitable tunnel/slice viewer and future OBJ/glTF loaders (`three/addons/`).
 - `@playwright/test` for GPU startup, lifecycle, initialization, and basic solver checks.
 
 Commands: `npm run dev`, `npm run build`, `npm run lint`, `npm test`, and `npm run preview`.
@@ -126,9 +126,15 @@ Use **Run**, **Pause**, **Step once**, and **Reset fluid**. Choose a target inle
 
 `src/shaders/macroscopic.wgsl` recovers velocity and density, writes `(u.x, u.y, u.z, (rho - 1) * 1000)` into the field texture, and reduces density extrema, maximum speed, and invalid-cell counts over every fluid cell after each batch. Recover lattice pressure variation as `field.w / 3000`. Diagnostics flag nonpositive/out-of-range values and speeds above 0.3; host checks also stop on density outside [0.8, 1.2]. These are development stability guards, not accuracy guarantees. The Mach readout is `maxSpeed * sqrt(3)`; physical m/s scaling and effective Reynolds-number reporting remain pending. Solver scratch buffers use about **4 KiB** beyond the core grid at the default uniform-buffer alignment.
 
-Solver tests compare nonuniform GPU results against a double-precision CPU reference, exercise boundaries/corners and odd-size grids, check periodic mass conservation and uniform-flow preservation, inspect the velocity/pressure field, confirm inlet-driven flow reaches the tunnel interior/outlet, and verify reset data directly. **Analytical Taylor–Green decay and Poiseuille channel tests now pass**, with error decreasing on finer grids. See [analytical validation details](tests/validation/README.md) for formulas, acceptance criteria, example measurements, and limitations. Broader grid convergence, 3D flow validation, and obstacle/force benchmarks remain pending. There is no flow visualization yet; the next display is a colored slice inside an orbitable 3D tunnel. Current scope is stationary models, local browser GPU computation, and no backend or storage.
+Solver tests compare nonuniform GPU results against a double-precision CPU reference, exercise boundaries/corners and odd-size grids, check periodic mass conservation and uniform-flow preservation, inspect the velocity/pressure field, confirm inlet-driven flow reaches the tunnel interior/outlet, and verify reset data directly. **Analytical Taylor–Green decay and Poiseuille channel tests now pass**, with error decreasing on finer grids. See [analytical validation details](tests/validation/README.md) for formulas, acceptance criteria, example measurements, and limitations. Broader grid convergence, 3D flow validation, and obstacle/force benchmarks remain pending. Current scope is stationary models, local browser GPU computation, and no backend or storage.
 
 The analytical channel test uses a verification-only `channel` boundary mode: periodic X/Z, stationary half-way bounce-back walls in Y, and a bounded constant X acceleration with Guo forcing. Acceleration defaults to zero and is rejected outside this mode. The solver's 48-byte per-step block includes this acceleration; the macroscopic pass uses the same dynamically selected block. Forced post-collision populations require subtracting half an impulse when recovering velocity. Channel reset includes the corresponding half-impulse shift. Normal wind-tunnel behavior and UI settings are unchanged.
+
+**Current flow viewer:** Three.js displays an orbitable tunnel outline, inlet/outlet markers, a +X wind arrow, and a movable XY slice. Drag to orbit, scroll to zoom, right-drag to pan, and use **Reset camera** to restore the view. Choose **Speed** (viridis) or **Pressure variation** (blue/neutral/red), move the slice across Z, and optionally show cell outlines. Color scales are labeled in lattice units, with measured slice extrema underneath. Speed uses the target inlet speed as its upper scale limit (minimum 0.005); pressure variation uses a fixed range of ±0.02. Values beyond the scale saturate at endpoint colors. Magenta marks invalid values. At rest, the speed slice is uniformly dark purple; inlet-driven flow develops after Run. A uniform color in an empty tunnel can be the correct result.
+
+The simulation still runs in WebGPU. The first viewer uses Three.js's WebGL renderer, loaded as a separate chunk after GPU initialization. To bridge the two APIs, `src/render/slice.ts` asynchronously copies only one rgba16float XY plane to a temporary readback buffer, removes row padding, decodes half floats, and converts the stored pressure signal to lattice pressure variation. A CPU-colored texture is then uploaded to Three.js. This is not a zero-copy renderer. Requests are serialized and limited to roughly eight updates per second, and are skipped when the field/settings have not changed or the document is hidden. Each startup-grid plane is approximately 16 KiB before color conversion; temporary buffers are released after use. Three.js rendering resources are separate from the core-grid memory estimate.
+
+Viewer checks cover color meaning, half-float conversion, actual GPU slice selection and row padding, live updates, orbit controls, slice/color selection, reset/reinitialization, and portrait layout. Particle tracers, volume rendering, objects, and uploaded geometry remain future work.
 
 ## 4. Architecture
 
@@ -603,7 +609,7 @@ webgpu-windtunnel/
 - [x] D3Q19 fused kernel, ping-pong, init to equilibrium
 - [x] Basic equilibrium inlet / first-order outlet / free-slip side walls
 - [x] Pause, step, reset, inlet ramp, and whole-grid stability diagnostics
-- [ ] 2D slice render of speed and pressure
+- [x] 2D slice render of speed and pressure inside an orbitable Three.js tunnel
 - [x] CPU reference, rest/uniform-flow checks, and periodic mass conservation
 - [x] Poiseuille and Taylor-Green tests passing, with two-resolution refinement checks
 
@@ -634,6 +640,16 @@ webgpu-windtunnel/
 - [ ] Interpolated bounce-back (Bouzidi) for curved surfaces
 - [ ] Moving-wall rolling road
 - [ ] Adaptive sub-stepping to frame budget
+
+**Deferred: immersive tunnel workspace (much later)**
+
+Schedule this visual redesign after the core simulation logic, model handling, and flow visualization work reliably.
+
+- [ ] Build a dedicated full-page tunnel workspace with the 3D scene as the main experience.
+- [ ] Create a room-like wind-tunnel environment with a clear sense of scale, depth, lighting, and surroundings.
+- [ ] Integrate visible wind streams, particle trails, and wake visualization driven by the simulated flow.
+- [ ] Arrange simulation controls and analysis tools around the scene without obscuring the model or airflow.
+- [ ] Make slice planes and cell grids optional inspection overlays.
 
 **Stretch**
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GPUContext } from "../gpu/device";
 import { createSolver } from "../sim/lbm";
 import type { FlowStats, Solver } from "../sim/lbm";
+import { FlowViewer } from './FlowViewer';
 
 const initialStats: FlowStats = {
   steps: 0,
@@ -185,10 +186,11 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           </div>
         ))}
       </dl>
+      <FlowViewer context={context} steps={stats.steps} targetSpeed={targetSpeed} />
       <p className="text-xs leading-5 text-slate-400">
         Density and speed checks cover every fluid cell after each batch. Side,
         top, and bottom boundaries are free-slip; there is no ground friction or
-        object yet. Values use lattice units. The colored flow view comes next.
+        object yet. Values use lattice units. The slice displays the calculated field.
       </p>
       {error && (
         <p

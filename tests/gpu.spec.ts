@@ -112,6 +112,7 @@ async function mockGPU(
                         dispatchWorkgroups: () => undefined, end: () => undefined,
                       }),
                       copyBufferToBuffer: () => undefined,
+                      copyTextureToBuffer: () => undefined,
                       finish: () => ({}),
                     }),
                     pushErrorScope: (scope: string) => scopes.push(scope),
