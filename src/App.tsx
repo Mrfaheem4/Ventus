@@ -3,6 +3,7 @@ import { initializeGPU } from "./gpu/device";
 import type { GPUContext } from "./gpu/device";
 import { initializeFluid } from "./sim/initialize";
 import type { InitializationReport } from "./sim/initialize";
+import { SolverPanel } from "./ui/SolverPanel";
 
 type Status =
   | { kind: "loading"; message?: string }
@@ -61,13 +62,13 @@ function GPUStatus() {
   return (
     <div className="mt-5 space-y-6">
       <p role="status" className="text-cyan-300">
-        GPU ready · Air initialized at rest
+        GPU ready · Air initialized at rest for startup
       </p>
       <dl className="grid gap-4 sm:grid-cols-3">
         {[
           ["Grid dimensions", `${grid.nx} × ${grid.ny} × ${grid.nz}`],
           ["Simulation cells", memory.cells.toLocaleString()],
-          ["Allocated resource estimate", mib(memory.totalBytes)],
+          ["Core grid memory estimate", mib(memory.totalBytes)],
         ].map(([label, value]) => (
           <div
             key={label}
@@ -79,8 +80,8 @@ function GPUStatus() {
         ))}
       </dl>
       <p className="text-sm leading-6 text-slate-400">
-        The tunnel now contains air at rest: density 1.0 in simulation units,
-        with zero bulk velocity. The inlet and airflow stepping are not active yet.
+        The tunnel starts with air at rest: density 1.0 in simulation units and
+        zero bulk velocity. Use the controls below to start the wind.
       </p>
       <section aria-labelledby="fluid-heading" className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4">
         <h3 id="fluid-heading" className="font-medium text-cyan-200">Initial fluid check passed</h3>
@@ -94,6 +95,7 @@ function GPUStatus() {
           They do not validate airflow dynamics.
         </p>
       </section>
+      <SolverPanel context={context} />
       {context.fallback && (
         <p className="text-sm text-amber-200">
           A smaller startup grid was selected to fit this GPU.
@@ -130,7 +132,8 @@ function GPUStatus() {
           ))}
         </dl>
         <p className="mt-4">
-          Memory is an estimate for these resources, excluding driver overhead.
+          Memory is an estimate for the core grid resources, excluding driver overhead
+          and the small solver parameter and diagnostic buffers.
           GPU limits do not indicate free VRAM. This small grid is for
           development, not validated car aerodynamics.
         </p>
@@ -158,7 +161,7 @@ function App() {
         className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/70 p-6"
       >
         <h2 id="gpu-heading" className="text-lg font-medium text-white">
-          GPU and initial fluid
+          GPU and airflow solver
         </h2>
         <GPUStatus key={attempt} />
         <button

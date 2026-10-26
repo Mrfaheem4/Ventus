@@ -1,6 +1,6 @@
 # Ventus — WebGPU 3D LBM Wind Tunnel
 
-A real-time, browser-native 3D wind tunnel. It solves incompressible-ish airflow with the **Lattice Boltzmann Method (D3Q19, BGK collision)** in **WebGPU compute shaders (WGSL)**, voxelizes uploaded CAD meshes (OBJ / glTF) on the GPU, and visualizes the result with a **volume raymarcher** and a **200k-particle streamline tracer**.
+A browser-native 3D wind tunnel project using the **Lattice Boltzmann Method (D3Q19, BGK collision)** in **WebGPU compute shaders (WGSL)**. The current build initializes and advances airflow in an empty tunnel. Uploaded-model voxelization, volume rendering, and particle flow visualization are planned capabilities.
 
 > **Status:** design / pre-alpha. The numbers in this document marked _(target)_ are goals from the engineering spec, not measurements. Replace them with your own benchmarks as soon as you have them (see [Benchmarking](#13-benchmarking)).
 
@@ -31,6 +31,8 @@ A real-time, browser-native 3D wind tunnel. It solves incompressible-ish airflow
 ---
 
 ## 1. Features
+
+This table describes the target feature set. See Quick start and the Roadmap for implementation status. The current scope is stationary models with computation on the user's GPU; moving ground and moving parts are deferred.
 
 | Area       | Feature                                                                                                    |
 | ---------- | ---------------------------------------------------------------------------------------------------------- |
@@ -95,7 +97,7 @@ Installed tooling:
 - Tailwind CSS with the official `@tailwindcss/vite` plugin.
 - `@webgpu/types` configured in `tsconfig.app.json` for WebGPU APIs.
 - Three.js and its types for the planned OBJ/glTF loaders and orbit camera (`three/addons/`).
-- `@playwright/test` for GPU startup and lifecycle checks. Simulation validation tests will follow with the solver.
+- `@playwright/test` for GPU startup, lifecycle, initialization, and basic solver checks.
 
 Commands: `npm run dev`, `npm run build`, `npm run lint`, `npm test`, and `npm run preview`.
 
@@ -114,9 +116,17 @@ WebGPU requires a **secure context** (`https://` or `localhost`). The app initia
 
 The panel shows GPU readiness, grid dimensions, memory estimates, and device limits. Reinitialization releases previous resources. Device loss pauses readiness and offers manual reinitialization. These small grids are development defaults, not validated automotive simulation settings.
 
-**Current fluid initialization:** `src/shaders/init.wgsl` initializes every cell to D3Q19 equilibrium at rest: density **1.0 in lattice units**, zero bulk velocity, and `f_i = w_i` in both ping-pong buffers. This is not a physical air density of 1 kg/m³. Flags are cleared to fluid, and the velocity/pressure-variation texture is zeroed. The 32-byte parameters contain grid dimensions, `tau = 0.6`, zero inlet velocity, and disabled Smagorinsky correction. There are no solid objects or boundary conditions yet.
+**Current fluid initialization:** `src/shaders/init.wgsl` initializes every cell to D3Q19 equilibrium at rest: density **1.0 in lattice units**, zero bulk velocity, and `f_i = w_i` in both ping-pong buffers. This is not a physical air density of 1 kg/m³. Flags are cleared to fluid, and the velocity/pressure-variation texture is zeroed. The 32-byte parameters contain grid dimensions, `tau = 0.6`, zero inlet velocity, and disabled Smagorinsky correction. Solver setup assigns the inlet/outlet boundary flags afterward. There are no solid objects yet.
 
-`src/sim/initialize.ts` dispatches initialization and asynchronously reads back five selected cells (edges and center) from both buffers. An independent CPU check verifies finite, nonnegative equilibrium populations, density near 1.0, zero bulk velocity, and fluid flags with a tolerance of `1e-6`. The panel reports these sampled checks; initialization is reusable for resets. The temporary readback buffer is 780 bytes for five cells and is released after the check. These checks confirm a starting state, not correct airflow dynamics. The inlet ramp, streaming/collision solver, and flow visualization are the next steps.
+`src/sim/initialize.ts` dispatches initialization and asynchronously reads back five selected cells (edges and center) from both buffers. An independent CPU check verifies finite, nonnegative equilibrium populations, density near 1.0, zero bulk velocity, and fluid flags with a tolerance of `1e-6`. The panel reports these sampled checks; initialization is reusable for resets. The temporary readback buffer is 780 bytes for five cells and is released after the check. These checks confirm a starting state, not correct airflow dynamics.
+
+**Current airflow solver:** `src/shaders/lbm.wgsl` implements fused pull streaming and BGK collision with prebuilt A→B/B→A bind groups. Wind enters at **x = 0 along +X**; Y is vertical and Z is lateral. The default inlet ramps smoothly from rest to **0.03 lattice units over 300 steps**, with `tau = 0.6`. The inlet prescribes equilibrium populations at density 1.0; the outlet copies the previous upstream populations (first-order zero-gradient approximation). Side/top/bottom boundaries use half-link specular reflection (free-slip), including edges and corners. They do not model a frictional road surface. Periodic side and fully periodic modes are available through solver settings for verification, not exposed as UI presets.
+
+Use **Run**, **Pause**, **Step once**, and **Reset fluid**. Choose a target inlet speed from **0 to 0.08 lattice units** before stepping; reset before changing it. Run uses four steps per animation frame, with at most one batch in flight, and pauses when the document becomes hidden. Pause lets an already submitted batch finish. Reinitializing the GPU also releases solver resources. A failed solver step requires a fluid reset before continuing.
+
+`src/shaders/macroscopic.wgsl` recovers velocity and density, writes `(u.x, u.y, u.z, (rho - 1) * 1000)` into the field texture, and reduces density extrema, maximum speed, and invalid-cell counts over every fluid cell after each batch. Recover lattice pressure variation as `field.w / 3000`. Diagnostics flag nonpositive/out-of-range values and speeds above 0.3; host checks also stop on density outside [0.8, 1.2]. These are development stability guards, not accuracy guarantees. The Mach readout is `maxSpeed * sqrt(3)`; physical m/s scaling and effective Reynolds-number reporting remain pending. Solver scratch buffers use about **4 KiB** beyond the core grid at the default uniform-buffer alignment.
+
+Solver tests compare nonuniform GPU results against a double-precision CPU reference, exercise boundaries/corners and odd-size grids, check periodic mass conservation and uniform-flow preservation, inspect the velocity/pressure field, confirm inlet-driven flow reaches the tunnel interior/outlet, and verify reset data directly. **Poiseuille, Taylor–Green decay, grid convergence, and obstacle/force benchmarks are still pending.** There is no flow visualization yet; the next display is a colored slice inside an orbitable 3D tunnel. Current scope is stationary models, local browser GPU computation, and no backend or storage.
 
 ## 4. Architecture
 
@@ -470,7 +480,7 @@ Cl = F_y / ( 0.5 · ρ · U² · A_ref )
 
 **Current development hardware:** testing on a gaming laptop with an **AMD Ryzen 5 7535HS** processor. The app currently reports the selected WebGPU adapter vendor as **AMD**. The 7535HS identifies the CPU, not the GPU; the exact mobile GPU model and its memory configuration have not yet been confirmed. This records the current test environment, not a solver performance benchmark.
 
-**Initialization shader benchmark note:** correctness is checked on the startup grid and an uneven grid, including reset from deliberately incorrect data. Initialization timing has not been benchmarked. There is no stream/collide solver yet, so no ms/step or MLUPS measurements are claimed.
+**Shader benchmark note:** initialization and basic stream/collide correctness have automated checks, including uneven grids. Performance has not been benchmarked; no GPU ms/step or MLUPS measurements are claimed. CPU-reference agreement does not replace analytical or experimental validation.
 
 The spec's numbers (RTX 4090 1.12 ms, 1 872 MLUPS, etc.) are arithmetic-consistent (`2 097 152 / t`), but they are **targets, not measurements**, and they ignore WebGPU overhead (validation, command encoding, browser scheduling). Measure your own.
 
@@ -586,11 +596,14 @@ webgpu-windtunnel/
 
 **Milestone 1: Correct solver (no graphics beyond a slice)**
 
-- [ ] Device setup with required limits and fallbacks
-- [ ] D3Q19 fused kernel, ping-pong, init to equilibrium
-- [ ] Inlet / outlet / free-slip side walls
+- [x] Startup device setup with limit checks and smaller-grid fallbacks
+- [ ] Higher-limit device requests for larger grids
+- [x] D3Q19 fused kernel, ping-pong, init to equilibrium
+- [x] Basic equilibrium inlet / first-order outlet / free-slip side walls
+- [x] Pause, step, reset, inlet ramp, and whole-grid stability diagnostics
 - [ ] 2D slice render of speed and pressure
-- [ ] CPU reference + Poiseuille and Taylor-Green tests passing
+- [x] CPU reference, rest/uniform-flow checks, and periodic mass conservation
+- [ ] Poiseuille and Taylor-Green tests passing
 
 **Milestone 2: Obstacles and forces**
 
