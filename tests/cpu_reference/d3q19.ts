@@ -74,6 +74,7 @@ export function cpuStep(
   const node = (x: number, y: number, z: number) =>
     x + grid.nx * (y + grid.ny * z);
   const t = Math.min(step / settings.rampSteps, 1);
+  const closedX = settings.boundaryMode === 'periodic' || settings.boundaryMode === 'channel';
   const inlet = equilibrium(1, [
     settings.targetSpeed * t * t * (3 - 2 * t),
     0,
@@ -83,13 +84,13 @@ export function cpuStep(
     for (let y = 0; y < grid.ny; y++)
       for (let x = 0; x < grid.nx; x++) {
         const destination = node(x, y, z);
-        if (settings.boundaryMode !== "periodic" && x === 0) {
+        if (!closedX && x === 0) {
           inlet.forEach((value, i) => {
             output[i * n + destination] = value;
           });
           continue;
         }
-        if (settings.boundaryMode !== "periodic" && x === grid.nx - 1) {
+        if (!closedX && x === grid.nx - 1) {
           for (let i = 0; i < 19; i++)
             output[i * n + destination] = source[i * n + node(x - 1, y, z)];
           continue;
@@ -97,6 +98,10 @@ export function cpuStep(
         const populations = directions.map((c, i) => {
           let [sx, sy, sz] = [x - c[0], y - c[1], z - c[2]];
           let incoming = i;
+          if (settings.boundaryMode === 'channel' && (sy < 0 || sy >= grid.ny)) {
+            const opposite = directions.findIndex((direction) => direction.every((value, axis) => value === -c[axis]));
+            return source[opposite*n+destination];
+          }
           if (settings.boundaryMode === "free-slip") {
             const reflected = [...c];
             if (sy < 0 || sy >= grid.ny) {
@@ -114,7 +119,7 @@ export function cpuStep(
             sy = (sy + grid.ny) % grid.ny;
             sz = (sz + grid.nz) % grid.nz;
           }
-          if (settings.boundaryMode === "periodic")
+          if (closedX)
             sx = (sx + grid.nx) % grid.nx;
           return source[incoming * n + node(sx, sy, sz)];
         });
@@ -126,9 +131,15 @@ export function cpuStep(
               0,
             ) / rho,
         );
+        velocity[0] += settings.acceleration/2;
         const eq = equilibrium(rho, velocity);
         populations.forEach((value, i) => {
-          output[i * n + destination] = value - (value - eq[i]) / settings.tau;
+          const c = directions[i];
+          const norm = c.reduce((sum, v) => sum+v*v, 0);
+          const weight = norm === 0 ? 1/3 : norm === 1 ? 1/18 : 1/36;
+          const cu = c.reduce((sum, v, axis) => sum+v*velocity[axis], 0);
+          const forcing = weight*(1-1/(2*settings.tau))*rho*settings.acceleration*(3*(c[0]-velocity[0])+9*cu*c[0]);
+          output[i * n + destination] = value - (value - eq[i]) / settings.tau + forcing;
         });
       }
   return output;

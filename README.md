@@ -126,7 +126,9 @@ Use **Run**, **Pause**, **Step once**, and **Reset fluid**. Choose a target inle
 
 `src/shaders/macroscopic.wgsl` recovers velocity and density, writes `(u.x, u.y, u.z, (rho - 1) * 1000)` into the field texture, and reduces density extrema, maximum speed, and invalid-cell counts over every fluid cell after each batch. Recover lattice pressure variation as `field.w / 3000`. Diagnostics flag nonpositive/out-of-range values and speeds above 0.3; host checks also stop on density outside [0.8, 1.2]. These are development stability guards, not accuracy guarantees. The Mach readout is `maxSpeed * sqrt(3)`; physical m/s scaling and effective Reynolds-number reporting remain pending. Solver scratch buffers use about **4 KiB** beyond the core grid at the default uniform-buffer alignment.
 
-Solver tests compare nonuniform GPU results against a double-precision CPU reference, exercise boundaries/corners and odd-size grids, check periodic mass conservation and uniform-flow preservation, inspect the velocity/pressure field, confirm inlet-driven flow reaches the tunnel interior/outlet, and verify reset data directly. **Poiseuille, Taylor–Green decay, grid convergence, and obstacle/force benchmarks are still pending.** There is no flow visualization yet; the next display is a colored slice inside an orbitable 3D tunnel. Current scope is stationary models, local browser GPU computation, and no backend or storage.
+Solver tests compare nonuniform GPU results against a double-precision CPU reference, exercise boundaries/corners and odd-size grids, check periodic mass conservation and uniform-flow preservation, inspect the velocity/pressure field, confirm inlet-driven flow reaches the tunnel interior/outlet, and verify reset data directly. **Analytical Taylor–Green decay and Poiseuille channel tests now pass**, with error decreasing on finer grids. See [analytical validation details](tests/validation/README.md) for formulas, acceptance criteria, example measurements, and limitations. Broader grid convergence, 3D flow validation, and obstacle/force benchmarks remain pending. There is no flow visualization yet; the next display is a colored slice inside an orbitable 3D tunnel. Current scope is stationary models, local browser GPU computation, and no backend or storage.
+
+The analytical channel test uses a verification-only `channel` boundary mode: periodic X/Z, stationary half-way bounce-back walls in Y, and a bounded constant X acceleration with Guo forcing. Acceleration defaults to zero and is rejected outside this mode. The solver's 48-byte per-step block includes this acceleration; the macroscopic pass uses the same dynamically selected block. Forced post-collision populations require subtracting half an impulse when recovering velocity. Channel reset includes the corresponding half-impulse shift. Normal wind-tunnel behavior and UI settings are unchanged.
 
 ## 4. Architecture
 
@@ -480,7 +482,7 @@ Cl = F_y / ( 0.5 · ρ · U² · A_ref )
 
 **Current development hardware:** testing on a gaming laptop with an **AMD Ryzen 5 7535HS** processor. The app currently reports the selected WebGPU adapter vendor as **AMD**. The 7535HS identifies the CPU, not the GPU; the exact mobile GPU model and its memory configuration have not yet been confirmed. This records the current test environment, not a solver performance benchmark.
 
-**Shader benchmark note:** initialization and basic stream/collide correctness have automated checks, including uneven grids. Performance has not been benchmarked; no GPU ms/step or MLUPS measurements are claimed. CPU-reference agreement does not replace analytical or experimental validation.
+**Shader benchmark note:** initialization and stream/collide correctness have automated checks, including uneven grids, analytical vortex decay, and forced channel profiles. Performance has not been benchmarked; no GPU ms/step or MLUPS measurements are claimed. Passing these low-speed laminar checks does not replace experimental validation of model aerodynamics.
 
 The spec's numbers (RTX 4090 1.12 ms, 1 872 MLUPS, etc.) are arithmetic-consistent (`2 097 152 / t`), but they are **targets, not measurements**, and they ignore WebGPU overhead (validation, command encoding, browser scheduling). Measure your own.
 
@@ -603,7 +605,7 @@ webgpu-windtunnel/
 - [x] Pause, step, reset, inlet ramp, and whole-grid stability diagnostics
 - [ ] 2D slice render of speed and pressure
 - [x] CPU reference, rest/uniform-flow checks, and periodic mass conservation
-- [ ] Poiseuille and Taylor-Green tests passing
+- [x] Poiseuille and Taylor-Green tests passing, with two-resolution refinement checks
 
 **Milestone 2: Obstacles and forces**
 

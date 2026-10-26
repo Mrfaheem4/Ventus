@@ -20,17 +20,22 @@ test('inlet ramp and parameter guards', () => {
   for (const targetSpeed of [NaN, Infinity, -1, 0.1]) expect(() => validateSettings({ ...DEFAULT_SETTINGS, targetSpeed })).toThrow();
   expect(() => validateSettings({ ...DEFAULT_SETTINGS, tau: 0.5 })).toThrow();
   expect(() => validateSettings({ ...DEFAULT_SETTINGS, rampSteps: 0 })).toThrow();
+  expect(() => validateSettings({ ...DEFAULT_SETTINGS, acceleration: 1e-5 })).toThrow();
+  expect(() => validateSettings({ ...DEFAULT_SETTINGS, boundaryMode: 'channel', acceleration: NaN })).toThrow();
+  expect(() => validateSettings({ ...DEFAULT_SETTINGS, boundaryMode: 'channel', acceleration: 0.001 })).toThrow();
 });
 
 for (const scenario of [
   { mode: 'free-slip', uniform: false }, { mode: 'periodic-sides', uniform: false },
   { mode: 'periodic', uniform: false }, { mode: 'free-slip', uniform: true },
+  { mode: 'channel', uniform: false },
 ] as { mode: BoundaryMode; uniform: boolean }[]) {
   const { mode, uniform } = scenario;
   test(`GPU matches CPU reference for ${uniform ? 'uniform' : 'nonuniform'} flow with ${mode} boundaries`, async ({ page }) => {
     await requireGPU(page);
     const grid = { nx: 12, ny: 7, nz: 5 };
-    const settings = { ...DEFAULT_SETTINGS, boundaryMode: mode, rampSteps: uniform ? 1 : 20, targetSpeed: uniform ? 0.02 : 0.03 };
+    const settings = { ...DEFAULT_SETTINGS, boundaryMode: mode, rampSteps: uniform ? 1 : 20, targetSpeed: uniform ? 0.02 : 0.03,
+      acceleration: mode === 'channel' ? 1e-5 : 0 };
     const initial = initialField(grid, uniform);
     let expected = initial;
     for (let step = 1; step <= 23; step++) expected = cpuStep(expected, grid, settings, step);
@@ -64,8 +69,25 @@ for (const scenario of [
         const values = Array.from(new Float32Array(mapped, 0, context.memory.distributionBytes/4));
         const field = Array.from(new Uint16Array(mapped, textureOffset, textureBytes/2));
         readback!.unmap();
+        let resetMaxSpeed = 0;
+        if (settings.boundaryMode === 'channel') {
+          await solver.reset();
+          const check = base.device.createCommandEncoder();
+          check.copyBufferToBuffer(solver.currentBuffer, 0, readback!, 0, context.memory.distributionBytes);
+          base.device.queue.submit([check.finish()]);
+          await readback!.mapAsync(GPUMapMode.READ);
+          const reset = new Float32Array(readback!.getMappedRange(), 0, context.memory.distributionBytes/4);
+          const n = context.memory.cells;
+          const cx = [0,1,-1,0,0,0,0,1,-1,1,-1,1,-1,1,-1,0,0,0,0];
+          for (let node = 0; node < n; node++) {
+            let rho = 0, mx = 0;
+            for (let i = 0; i < 19; i++) { rho += reset[i*n+node]; mx += reset[i*n+node]*cx[i]; }
+            resetMaxSpeed = Math.max(resetMaxSpeed, Math.abs(mx/rho-settings.acceleration/2));
+          }
+          readback!.unmap();
+        }
         if (fatal) throw new Error(fatal);
-        return { values, stats, field, bytesPerRow };
+        return { values, stats, field, bytesPerRow, resetMaxSpeed };
       } finally { readback?.destroy(); resources.destroy(); abort.abort(); }
     }, { grid, settings, initial: Array.from(initial) });
     let maxError = 0;
@@ -74,6 +96,7 @@ for (const scenario of [
     expect(result.stats.steps).toBe(23);
     expect(result.stats.invalidCells).toBe(0);
     expect(result.stats.maxSpeed).toBeLessThan(0.1);
+    expect(result.resetMaxSpeed).toBeLessThan(1e-7);
     const halfFloat = (bits: number) => {
       const sign = bits & 0x8000 ? -1 : 1;
       const exponent = (bits >> 10) & 31;
@@ -94,6 +117,7 @@ for (const scenario of [
         directions[i].forEach((direction, axis) => { momentum[axis] += value*direction; });
       }
       const velocity = momentum.map((value) => value/rho);
+      velocity[0] -= settings.acceleration/2;
       minDensity = Math.min(minDensity, rho);
       maxDensity = Math.max(maxDensity, rho);
       maxSpeed = Math.max(maxSpeed, Math.hypot(...velocity));

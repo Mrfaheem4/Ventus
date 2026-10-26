@@ -1,7 +1,7 @@
 struct Params {
   grid: vec3<u32>, tau: f32,
   inlet: vec3<f32>, cs: f32,
-  step: u32, ramp_steps: u32, boundary_mode: u32, padding: u32,
+  step: u32, ramp_steps: u32, boundary_mode: u32, acceleration_x: f32,
 };
 @group(0) @binding(0) var<storage, read> source: array<f32>;
 @group(0) @binding(1) var<storage, read_write> destination: array<f32>;
@@ -37,14 +37,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var i = 0u; i < 19u; i++) { destination[i*n+node] = 0.0; }
     return;
   }
-  // Mode 2 is a fully periodic verification domain, with no driven inlet/outlet.
-  if (p.boundary_mode != 2u && id.x == 0u) {
+  // Modes 2/3 wrap X for periodic/vortex and forced-channel verification.
+  if (p.boundary_mode < 2u && id.x == 0u) {
     let t = min(f32(p.step) / f32(p.ramp_steps), 1.0);
     let velocity = p.inlet * (t*t*(3.0-2.0*t));
     for (var i = 0u; i < 19u; i++) { destination[i*n+node] = equilibrium(i, 1.0, velocity); }
     return;
   }
-  if (p.boundary_mode != 2u && id.x == p.grid.x-1u) {
+  if (p.boundary_mode < 2u && id.x == p.grid.x-1u) {
     // First-order zero-gradient outlet: extrapolate previous upstream populations.
     let upstream = node-1u;
     for (var i = 0u; i < 19u; i++) { destination[i*n+node] = source[i*n+upstream]; }
@@ -55,6 +55,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
   var momentum = vec3<f32>(0.0);
   for (var i = 0u; i < 19u; i++) {
     var src = vec3<i32>(id) - c[i];
+    let channel_wall = p.boundary_mode == 3u && (src.y < 0 || src.y >= i32(p.grid.y));
     var direction = i;
     if (p.boundary_mode == 0u) {
       // Half-link specular reflection: flip only the wall-normal component.
@@ -69,16 +70,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
       src.y = (src.y + i32(p.grid.y)) % i32(p.grid.y);
       src.z = (src.z + i32(p.grid.z)) % i32(p.grid.z);
     }
-    if (p.boundary_mode == 2u) { src.x = (src.x + i32(p.grid.x)) % i32(p.grid.x); }
+    if (p.boundary_mode >= 2u) { src.x = (src.x + i32(p.grid.x)) % i32(p.grid.x); }
     let upstream = index(src);
     var value = source[direction*n+upstream];
-    if ((flags[upstream] & 1u) != 0u) { value = source[opposite[i]*n+node]; }
+    if (channel_wall || (flags[upstream] & 1u) != 0u) { value = source[opposite[i]*n+node]; }
     f[i] = value;
     rho += value;
     momentum += value * vec3<f32>(c[i]);
   }
-  let velocity = momentum / rho;
+  // Guo forcing acts on the streamed/pre-collision state. Default acceleration is zero.
+  let force = vec3<f32>(rho*p.acceleration_x, 0.0, 0.0);
+  let velocity = (momentum + 0.5*force) / rho;
   for (var i = 0u; i < 19u; i++) {
-    destination[i*n+node] = f[i] - (f[i] - equilibrium(i, rho, velocity)) / p.tau;
+    let ci = vec3<f32>(c[i]);
+    let forcing = weight(i)*(1.0-0.5/p.tau)*dot(3.0*(ci-velocity)+9.0*dot(ci,velocity)*ci, force);
+    destination[i*n+node] = f[i] - (f[i] - equilibrium(i, rho, velocity)) / p.tau + forcing;
   }
 }

@@ -55,7 +55,10 @@ export async function createSolver(
   }
   function configureBoundaries() {
     const flags = new Uint32Array(context.memory.cells);
-    if (settings.boundaryMode !== "periodic") {
+    if (
+      settings.boundaryMode !== "periodic" &&
+      settings.boundaryMode !== "channel"
+    ) {
       for (let z = 0; z < grid.nz; z++)
         for (let y = 0; y < grid.ny; y++) {
           const row = grid.nx * (y + grid.ny * z);
@@ -143,9 +146,46 @@ export async function createSolver(
       compute: { module: stepModule, entryPoint: "main" },
     });
     checkActive();
+    const macroLayout = device.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" },
+        },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: {
+            type: "uniform",
+            hasDynamicOffset: true,
+            minBindingSize: 48,
+          },
+        },
+        {
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+            viewDimension: "3d",
+          },
+        },
+        {
+          binding: 3,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "storage" },
+        },
+        {
+          binding: 4,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" },
+        },
+      ],
+    });
     const macro = await device.createComputePipelineAsync({
       label: "Macroscopic field and stability",
-      layout: "auto",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [macroLayout] }),
       compute: { module: macroModule, entryPoint: "main" },
     });
     checkActive();
@@ -165,7 +205,7 @@ export async function createSolver(
         layout: macro.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: state } },
-          { binding: 1, resource: { buffer: resources.params } },
+          { binding: 1, resource: { buffer: params, size: 48 } },
           { binding: 2, resource: resources.field.createView() },
           { binding: 3, resource: { buffer: health } },
           { binding: 4, resource: { buffer: resources.flags } },
@@ -176,7 +216,10 @@ export async function createSolver(
 
     async function step(count = 1): Promise<FlowStats> {
       checkActive();
-      if (failed) throw new Error("Reset the fluid before continuing after a solver failure.");
+      if (failed)
+        throw new Error(
+          "Reset the fluid before continuing after a solver failure.",
+        );
       if (busy)
         throw new Error("A simulation operation is already in progress.");
       if (!Number.isInteger(count) || count < 1 || count > 16)
@@ -197,7 +240,10 @@ export async function createSolver(
               ? 0
               : settings.boundaryMode === "periodic-sides"
                 ? 1
-                : 2;
+                : settings.boundaryMode === "periodic"
+                  ? 2
+                  : 3;
+          floats[11] = settings.acceleration;
         }
         device.queue.writeBuffer(params, 0, packed);
         device.queue.writeBuffer(
@@ -222,7 +268,7 @@ export async function createSolver(
         }
         const pass = encoder.beginComputePass();
         pass.setPipeline(macro);
-        pass.setBindGroup(0, macros[current]);
+        pass.setBindGroup(0, macros[current], [(count - 1) * stride]);
         pass.dispatchWorkgroups(
           Math.ceil(grid.nx / 8),
           Math.ceil(grid.ny / 8),
@@ -278,6 +324,19 @@ export async function createSolver(
       try {
         await initializeFluid(context, signal);
         checkActive();
+        // In forced verification mode, post-collision populations need a half
+        // impulse so that their force-corrected physical velocity is zero.
+        if (settings.acceleration !== 0) {
+          const cx = [0,1,-1,0,0,0,0,1,-1,1,-1,1,-1,1,-1,0,0,0,0];
+          const u = settings.acceleration / 2;
+          const values = new Float32Array(context.memory.cells);
+          for (let i = 0; i < 19; i++) {
+            const weight = i === 0 ? 1/3 : i <= 6 ? 1/18 : 1/36;
+            const cu = cx[i]*u;
+            values.fill(weight*(1+3*cu+4.5*cu*cu-1.5*u*u));
+            for (const buffer of resources.distributions) device.queue.writeBuffer(buffer, i*values.byteLength, values);
+          }
+        }
         configureBoundaries();
         current = 0;
         steps = 0;

@@ -1,4 +1,7 @@
-struct Params { grid: vec3<u32>, tau: f32, inlet: vec3<f32>, cs: f32 };
+struct Params {
+  grid: vec3<u32>, tau: f32, inlet: vec3<f32>, cs: f32,
+  step: u32, ramp_steps: u32, boundary_mode: u32, acceleration_x: f32,
+};
 struct Health { min_density: atomic<u32>, max_density: atomic<u32>, max_speed: atomic<u32>, invalid: atomic<u32> };
 @group(0) @binding(0) var<storage, read> state: array<f32>;
 @group(0) @binding(1) var<uniform> p: Params;
@@ -26,7 +29,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     rho += value;
     momentum += value*vec3<f32>(c[i]);
   }
-  let velocity = momentum/rho;
+  // Buffers hold POST-collision populations: remove half the applied impulse.
+  let velocity = momentum/rho - vec3<f32>(0.5*p.acceleration_x, 0.0, 0.0);
   let speed = length(velocity);
   if (!(valid && rho > 0.0 && rho < 1e6 && speed <= 0.3)) {
     atomicAdd(&health.invalid, 1u);
