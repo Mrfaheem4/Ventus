@@ -1,5 +1,9 @@
 # Analytical solver validation
 
+The [smoke volume notes](smoke.md) cover passive concentration transport, rendering, pace controls, and their limits.
+
+The [passive tracer checks](tracers.md) cover 3D advection, interpolation, collision/restart behavior, and visualization lifecycle. They do not validate smoke density or turbulence.
+
 Sphere forces have a separate [measurement and domain study](sphere-drag.md), run with `npm run study:drag`.
 
 The [boundary-distance study](boundary-distance.md), run with `npm run study:boundaries`, separates inlet, outlet, and side-distance effects on an unchanged voxel sphere.

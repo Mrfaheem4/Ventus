@@ -1,0 +1,67 @@
+{
+  "adapter": "amd",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+  "cases": [
+    {
+      "grid": {
+        "nx": 64,
+        "ny": 32,
+        "nz": 32
+      },
+      "enabled": false,
+      "steps": 1024,
+      "batchSteps": 4,
+      "solverMsPerStep": 1.2238281250465661,
+      "tracerMsPerStep": 0,
+      "totalMsPerStep": 1.2238281250465661,
+      "tracerBytes": 0,
+      "positionReadbackBytesPerBatch": 0
+    },
+    {
+      "grid": {
+        "nx": 64,
+        "ny": 32,
+        "nz": 32
+      },
+      "enabled": true,
+      "steps": 1024,
+      "batchSteps": 4,
+      "solverMsPerStep": 1.2316406249883585,
+      "tracerMsPerStep": 0.8787109374534339,
+      "totalMsPerStep": 2.1103515624417923,
+      "tracerBytes": 24592,
+      "positionReadbackBytesPerBatch": 12288
+    },
+    {
+      "grid": {
+        "nx": 96,
+        "ny": 48,
+        "nz": 48
+      },
+      "enabled": false,
+      "steps": 1024,
+      "batchSteps": 4,
+      "solverMsPerStep": 2.2303710937849246,
+      "tracerMsPerStep": 0,
+      "totalMsPerStep": 2.2303710937849246,
+      "tracerBytes": 0,
+      "positionReadbackBytesPerBatch": 0
+    },
+    {
+      "grid": {
+        "nx": 96,
+        "ny": 48,
+        "nz": 48
+      },
+      "enabled": true,
+      "steps": 1024,
+      "batchSteps": 4,
+      "solverMsPerStep": 2.4600585940061137,
+      "tracerMsPerStep": 0.8941406247904524,
+      "totalMsPerStep": 3.354199218796566,
+      "tracerBytes": 24592,
+      "positionReadbackBytesPerBatch": 12288
+    }
+  ],
+  "note": "One sequential run. Wall time includes diagnostics and position readback. Pipelines warm before timing. Excludes React, animated scene rendering, trail geometry work and GPU-only timestamps. Idle demo resources may remain. Not an FPS or hardware-tier benchmark."
+}

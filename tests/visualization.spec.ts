@@ -76,8 +76,9 @@ test('Three.js viewer orbits, shows live flow, switches slices and cleans up on 
   await page.getByLabel('Test scene').selectOption('none');
   await expect(page.getByRole('button', { name: 'Step once' })).toBeEnabled();
   const viewer = page.getByRole('region', { name: '3D flow view' });
-  const canvas = viewer.getByRole('img', { name: 'Orbitable 3D wind tunnel with a colored XY flow slice' });
+  const canvas = viewer.getByRole('img', { name: 'Orbitable 3D wind tunnel with smoke and an optional flow slice' });
   await expect(canvas).toBeVisible();
+  await viewer.getByLabel('Show slice', { exact: true }).check();
   await expect(viewer.getByTestId('slice-range')).toContainText('Slice range:');
   const before = await canvas.screenshot();
   const bounds = (await canvas.boundingBox())!;
@@ -87,6 +88,7 @@ test('Three.js viewer orbits, shows live flow, switches slices and cleans up on 
   await page.mouse.up();
   expect((await canvas.screenshot()).equals(before)).toBe(false);
   await viewer.getByRole('button', { name: 'Reset camera' }).click();
+  await viewer.getByLabel('Show slice',{ exact: true }).check();
   await viewer.getByLabel('Show cell grid').check();
   await viewer.getByLabel('Color by').selectOption('pressure');
   await expect(viewer.getByLabel('Pressure variation color scale')).toBeVisible();
@@ -110,6 +112,7 @@ test('Three.js viewer orbits, shows live flow, switches slices and cleans up on 
   await page.getByRole('button', { name: 'Reinitialize GPU' }).click();
   await expect(page.getByRole('status')).toContainText('GPU ready');
   await expect(canvas).toHaveCount(1);
+  await viewer.getByLabel('Show slice', { exact: true }).check();
   await expect(viewer.getByTestId('slice-range')).toContainText('Slice range:');
   await expect(viewer.getByText(/^3D view:/)).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });

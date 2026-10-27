@@ -2,13 +2,17 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Grid } from '../gpu/grid';
 import type { Obstacle } from '../geometry/sphere';
+import { createTracerView } from './tracer-view';
+import type { TracerFrame } from './tracer-seeds';
+import { createSmokeView } from './smoke-view';
+import type { SmokeFrame } from './smoke';
 
 export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle?: Obstacle) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.domElement.setAttribute('aria-label', 'Orbitable 3D wind tunnel with a colored XY flow slice');
+  renderer.domElement.setAttribute('aria-label', 'Orbitable 3D wind tunnel with smoke and an optional flow slice');
   renderer.domElement.setAttribute('role', 'img');
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
@@ -16,7 +20,9 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#06101d');
+  scene.background = new THREE.Color('#080f19');
+  const tracers = createTracerView(grid);
+  scene.add(tracers.group);
   const width = grid.nx / grid.ny;
   const depth = grid.nz / grid.ny;
   const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
@@ -24,9 +30,20 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   let fitScale = 1;
   controls.minDistance = 0.6;
   controls.maxDistance = 12;
-  function render() { renderer.render(scene, camera); }
+  const opaqueDepth = new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
+  const depthTarget = new THREE.WebGLRenderTarget(1,1,{ depthTexture: opaqueDepth });
+  const smoke = createSmokeView(grid,opaqueDepth,camera);
+  scene.add(smoke.mesh);
+  function render() {
+    if (smoke.mesh.visible) {
+      smoke.mesh.visible = false;
+      renderer.setRenderTarget(depthTarget); renderer.render(scene,camera); renderer.setRenderTarget(null);
+      smoke.mesh.visible = true;
+    }
+    renderer.render(scene, camera);
+  }
   function resetCamera() {
-    camera.position.set(width * 1.05, 1.1, Math.max(depth * 2.7, 2.2));
+    camera.position.set(width * 0.22, 0.45, Math.max(depth * 2.5, 2.2));
     camera.position.multiplyScalar(fitScale);
     controls.target.set(0, 0, 0);
     controls.update();
@@ -34,7 +51,7 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   }
 
   const box = new THREE.BoxGeometry(width, 1, depth);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: '#456582' }));
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: '#304052', transparent: true, opacity: 0.55 }));
   box.dispose();
   scene.add(edges);
 
@@ -44,7 +61,7 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   texture.minFilter = THREE.NearestFilter;
   texture.needsUpdate = true;
   const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, 1),
-    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, toneMapped: false, transparent: true, alphaTest: 0.01 }));
+    new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide, toneMapped: false, transparent: true, opacity: 0.2, depthWrite: false, alphaTest: 0.01 }));
   plane.visible = false;
   scene.add(plane);
   let sliceVisible = true, gridVisible = false, hasSlice = false;
@@ -58,7 +75,7 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
     light.position.set(-2, 3, 4);
     scene.add(light);
     smoothBody = new THREE.Mesh(new THREE.SphereGeometry(sphere.radius/grid.ny, 40, 24),
-      new THREE.MeshStandardMaterial({ color: '#c9d6e8', roughness: 0.35, metalness: 0.15 }));
+      new THREE.MeshStandardMaterial({ color: '#459ca9', roughness: 0.28, metalness: 0.4 }));
     smoothBody.position.set(sphere.center[0]/grid.ny-width/2, sphere.center[1]/grid.ny-0.5, sphere.center[2]/grid.ny-depth/2);
     scene.add(smoothBody);
     voxelBody = new THREE.InstancedMesh(new THREE.BoxGeometry(1/grid.ny, 1/grid.ny, 1/grid.ny),
@@ -93,7 +110,7 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   const axes = new THREE.AxesHelper(0.3);
   axes.position.set(-width / 2, -0.65, depth / 2);
   scene.add(axes);
-  const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(-width * 0.3, 0.7, 0), width * 0.6, '#67e8f9', 0.09, 0.06);
+  const arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(-width * 0.3, 0.58, 0), width * 0.6, '#67e8f9', 0.09, 0.06);
   scene.add(arrow);
 
   function label(text: string, x: number, color: string) {
@@ -106,7 +123,7 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
     ctx.fillText(text, 128, 32);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), depthTest: false }));
     sprite.scale.set(0.6, 0.15, 1);
-    sprite.position.set(x, 0.87, 0);
+    sprite.position.set(x, 0.65, 0);
     scene.add(sprite);
   }
   label('INLET', -width / 2, '#67e8f9');
@@ -118,6 +135,8 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
+    const dimensions = renderer.getDrawingBufferSize(new THREE.Vector2());
+    depthTarget.setSize(dimensions.x,dimensions.y); smoke.resize(dimensions.x,dimensions.y);
     // Keep the same horizontal framing on portrait screens without resetting orbit.
     const nextScale = Math.max(1, 1 / camera.aspect);
     camera.position.sub(controls.target).multiplyScalar(nextScale / fitScale).add(controls.target);
@@ -131,6 +150,24 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   return {
     canvas: renderer.domElement,
     resetCamera,
+    sideView() {
+      camera.position.set(0,0,Math.max(depth*2.8,2.8)).multiplyScalar(fitScale);
+      controls.target.set(0,0,0); controls.update(); render();
+    },
+    setSmoke(frame: SmokeFrame | null) {
+      smoke.update(frame);
+      renderer.domElement.dataset.smokeStep = String(frame?.step ?? 0);
+      renderer.domElement.dataset.smokeVoxels = String(frame?.density.length ?? 0);
+      render();
+    },
+    setSliceOpacity(opacity: number) { plane.material.opacity = opacity; render(); },
+    setTracers(frame: TracerFrame | null) {
+      const state = tracers.update(frame);
+      renderer.domElement.dataset.tracerStep = String(state.step);
+      renderer.domElement.dataset.tracerCount = String(state.count);
+      renderer.domElement.dataset.tracerSegments = String(state.segments);
+      render();
+    },
     setGrid(visible: boolean) { gridVisible = visible; lines.visible = visible && sliceVisible; render(); },
     setSliceVisible(visible: boolean) { sliceVisible = visible; plane.visible = visible && hasSlice; lines.visible = visible && gridVisible; render(); },
     setVoxelBody(visible: boolean) { if (smoothBody) smoothBody.visible = !visible; if (voxelBody) voxelBody.visible = visible; render(); },
@@ -144,11 +181,12 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
       render();
     },
     dispose() {
+      smoke.dispose(); depthTarget.dispose();
       resize.disconnect();
       controls.dispose();
       const textures = new Set<THREE.Texture>();
       scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite) {
+        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite || object instanceof THREE.Points) {
           if ('geometry' in object) object.geometry.dispose();
           if (object instanceof THREE.InstancedMesh) object.dispose();
           const materials = Array.isArray(object.material) ? object.material : [object.material];

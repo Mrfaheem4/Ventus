@@ -66,6 +66,8 @@ function GPUStatus({ requestedGrid }: { requestedGrid?: Grid }) {
       <p role="status" className="text-cyan-300">
         GPU ready · Air initialized at rest for startup
       </p>
+      <SolverPanel context={context} />
+      <details className="rounded-xl border border-slate-800 p-4"><summary className="cursor-pointer text-sm text-slate-400">Startup diagnostics</summary>
       <dl className="grid gap-4 sm:grid-cols-3">
         {[
           ["Grid dimensions", `${grid.nx} × ${grid.ny} × ${grid.nz}`],
@@ -97,7 +99,8 @@ function GPUStatus({ requestedGrid }: { requestedGrid?: Grid }) {
           They do not validate airflow dynamics.
         </p>
       </section>
-      <SolverPanel context={context} />
+      </details>
+
       {context.fallback && (
         <p className="text-sm text-amber-200">
           A smaller startup grid was selected to fit this GPU.
@@ -149,20 +152,19 @@ function App() {
   const [resolution, setResolution] = useState('auto');
   const selected = RESOLUTION_PRESETS.find((preset) => preset.id === resolution);
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-6 py-16 sm:px-12">
-      <p className="mb-6 text-sm font-medium tracking-[0.25em] text-cyan-400">
+    <main className="mx-auto flex min-h-screen max-w-[1600px] flex-col px-4 py-6 sm:px-8">
+      <p className="mb-2 text-xs font-medium tracking-[0.25em] text-cyan-400">
         BROWSER-NATIVE WIND TUNNEL
       </p>
-      <h1 className="text-6xl font-semibold tracking-tight text-white sm:text-8xl">
+      <h1 className="text-3xl font-semibold tracking-tight text-white">
         Ventus
       </h1>
-      <p className="mt-6 max-w-xl text-lg leading-8 text-slate-400">
-        Your device powers the wind tunnel. Start by connecting the GPU and
-        preparing space for the airflow simulation.
+      <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+        Your GPU powers this wind tunnel. Set the wind, run, and explore the flow.
       </p>
       <section
         aria-labelledby="gpu-heading"
-        className="mt-10 rounded-2xl border border-slate-800 bg-slate-900/70 p-6"
+        className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/70 p-6"
       >
         <h2 id="gpu-heading" className="text-lg font-medium text-white">
           GPU and airflow solver

@@ -191,6 +191,7 @@ test('sphere preview, voxel view, optional slice and scene reset work in the UI'
   await expect(page.getByLabel('Test scene')).toHaveValue('sphere');
   const viewer = page.getByRole('region', { name: '3D flow view' });
   const canvas = viewer.getByRole('img');
+  await viewer.getByLabel('Show slice', { exact: true }).check();
   await expect(viewer.getByTestId('slice-range')).toContainText('Slice range:');
   await viewer.getByLabel('Show slice', { exact: true }).uncheck();
   const smooth = await canvas.screenshot();
@@ -199,7 +200,7 @@ test('sphere preview, voxel view, optional slice and scene reset work in the UI'
   await viewer.getByLabel('Show slice', { exact: true }).check();
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   const stepText = page.locator('dt', { hasText: 'Simulation steps' }).locator('..').locator('dd');
-  await expect.poll(async () => Number((await stepText.textContent())!.replaceAll(',', ''))).toBeGreaterThanOrEqual(300);
+  await expect.poll(async () => Number((await stepText.textContent())!.replaceAll(',', '')), { timeout: 20000 }).toBeGreaterThanOrEqual(300);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Step once' })).toBeEnabled();
   await viewer.screenshot({ path: 'test-results/sphere-flow.png' });

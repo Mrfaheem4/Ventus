@@ -4,7 +4,7 @@ A browser-based virtual wind tunnel for exploring how air moves around 3D object
 
 Ventus aims to combine credible aerodynamic simulation with an immersive visual experience: load a model, configure the wind, and inspect airflow, pressure, and the wake around it.
 
-**Status: pre-alpha learning project.** The current app supports a stationary sphere, an empty tunnel, and provisional force measurements. User-uploaded models, smoke trails, and volume visualization are still in development or planned.
+**Status: pre-alpha learning project.** The current app supports a stationary sphere, an empty tunnel, provisional force measurements, transported smoke concentration with a lit volume renderer, and optional diagnostic tracers. User-uploaded models and further smoke/UI refinement remain planned.
 
 ## Our mission
 
@@ -17,6 +17,8 @@ Build a wind tunnel that is enjoyable to explore, useful for learning, and incre
 - **Make the limits understandable.** Explain quality, performance, and accuracy without asking users to understand the implementation.
 
 The long-term experience should make airflow feel tangible: streams passing around the body, smoke-like trails revealing motion, and wake structures that can be explored in 3D. These visuals must follow the calculated flow. Fine vortices require appropriate physics and sufficient resolution; a smooth model or dense particle effect does not establish simulation accuracy.
+
+**The final visual goal is convincing smoke flowing through the tunnel.** Soft tracer heads and path trails are a development stage toward continuous smoke-like plumes, density, and lighting, rather than the final presentation.
 
 ## Your GPU powers the simulation
 
@@ -47,6 +49,9 @@ WebGPU does not provide a reliable total/free VRAM reading. The app can report r
 - Safe scene changes that reset the fluid and step counter.
 - An orbitable Three.js viewer with speed and pressure slices, labeled color scales, and optional cell outlines.
 - A hideable slice and a voxel-body view showing the shape the solver actually uses.
+- GPU-advected 3D airflow tracers with soft heads and short fading path trails, visible without a slice.
+- A smoke-first view with seven narrow inlet filaments, passive concentration transport, density-dependent lighting, and model occlusion. Smoke resolution follows the airflow grid, with bounded cubic transport to reduce numerical smearing.
+- Faster simulation pace choices and an optional translucent slice with adjustable opacity.
 - Density, speed, stability, and basic dimensionless-flow readouts.
 - Selectable simulation resolution, memory estimates, and measured batch time per step.
 - Signed sphere forces, provisional drag/lift coefficients, and a drag history chart.
@@ -62,10 +67,11 @@ Current sphere results are a low-Reynolds-number demonstration. They do not esta
 2. Keep **Stationary sphere** selected, or choose **Empty tunnel** for comparison.
 3. Set the target inlet speed and click **Run**.
 4. Orbit the scene and switch between speed and pressure coloring.
-5. Move the slice across the tunnel, toggle **Show voxel body**, or hide the slice entirely.
+5. Watch the default **Show smoke** view. The slice starts hidden; enable **Show slice** for an adjustable translucent overlay. **Show airflow tracers** remains available as an optional diagnostic view.
+   **Simulation pace** defaults to Fast (16 actual solver steps per update). Pause to choose a different pace or toggle smoke/tracers. Higher throughput depends on your GPU; this does not multiply particle speeds independently of the airflow.
 6. Pause to inspect the state, advance one step, or reset the fluid.
 
-Changing the test scene resets the simulation. A nearly uniform color can be correct for an empty tunnel. Smoke-like trails and particle visualization are not implemented yet.
+Changing the test scene resets the simulation and clears smoke/tracer history. A nearly uniform slice color can be correct for an empty tunnel. Smoke and tracers freeze when paused. Smoke starts at the inlet and needs simulated time to reach the body and outlet. Emission pulses change concentration, not wind velocity. The low-Re sphere flow may remain smooth; a smoke effect does not create physically resolved vortices.
 
 Use **Simulation resolution** to choose Standard (64 × 32 × 32), Fine (96 × 48 × 48), High (128 × 64 × 64), or Extra (160 × 80 × 80). Automatic keeps the conservative startup and smaller-grid fallback. Changing resolution starts a fresh scene and resets the flow, history, and wind settings. Explicit selections report allocation failures rather than silently substituting a smaller grid.
 
@@ -116,8 +122,10 @@ A powerful GPU should unlock more capability as the engine improves. No fixed re
 
 - [x] Orbitable tunnel with optional speed/pressure slices and cell outlines.
 - [x] Smooth and voxel previews of the stationary sphere.
-- [ ] Moving flow tracers, configurable emitters, and persistent trails.
-- [ ] Smoke-like visualization and volumetric views.
+- [x] Velocity-driven 3D tracers, soft heads, and short fading path trails.
+- [ ] Configurable smoke emitters and longer history controls.
+- [x] Initial transported smoke concentration and volume rendering.
+- [ ] Refine smoke detail, lighting, emission controls, and rendering performance.
 - [ ] Wake and vortex inspection using quantities derived from the simulation.
 - [ ] Model-surface pressure coloring and point inspection.
 - [ ] Clear legends, useful view presets, and exportable results or captures.
@@ -162,6 +170,8 @@ Open the local address printed by Vite. In Windows PowerShell, use `npm.cmd` if 
 | `npm test` | Run automated checks |
 | `npm run study:drag` | Run the longer, isolated GPU sphere study |
 | `npm run study:boundaries` | Isolate inlet, outlet, and side-distance effects |
+| `npm run study:tracers` | Measure tracer integration and position-readback cost |
+| `npm run study:playback` | Compare complete UI playback configurations |
 
 ## Validation and development
 
@@ -179,6 +189,10 @@ Real GPU tests are explicitly skipped if no compatible adapter is available. A s
 The [sphere force study](tests/validation/sphere-drag.md) records resolution, tunnel size, memory estimates, timings, and the unresolved difference from an isolated-sphere reference. The study runs with one worker to avoid competition between tests for the GPU.
 
 The [boundary-distance study](tests/validation/boundary-distance.md) changes one set of boundary distances at a time while preserving the exact voxel sphere. It provides a baseline for future boundary-formula changes.
+
+[Tracer validation notes](tests/validation/tracers.md) explain advection, collision checks, reset behavior, transfer costs, and the current batch-wise approximation for time-varying flow.
+
+[Smoke notes](tests/validation/smoke.md) describe the visual concentration field, rendering, pace controls, and accuracy limits.
 
 Keep current capabilities separate from future goals. Changes to physics or shaders should include relevant validation and a performance note; performance figures should come from measurements. Passing basic benchmarks does not guarantee accuracy for arbitrary uploaded models.
 

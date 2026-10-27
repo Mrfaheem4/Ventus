@@ -9,6 +9,11 @@ import type { ObstacleKind } from "../geometry/sphere";
 import type { ForceSample } from "../sim/forces";
 import { ForcePanel } from "./ForcePanel";
 import { resolutionScale } from '../gpu/grid';
+import { createTracers } from '../render/tracers';
+import type { Tracers } from '../render/tracers';
+import type { TracerFrame } from '../render/tracer-seeds';
+import { createSmoke } from '../render/smoke';
+import type { Smoke, SmokeFrame } from '../render/smoke';
 
 const initialStats: FlowStats = {
   steps: 0,
@@ -25,6 +30,15 @@ export function SolverPanel({ context }: { context: GPUContext }) {
   const scale = resolutionScale(context.grid);
   const rampSteps = Math.round(300*scale*scale);
   const solver = useRef<Solver | null>(null);
+  const tracers = useRef<Tracers | null>(null);
+  const smoke = useRef<Smoke | null>(null);
+  const [smokeEnabled, setSmokeEnabled] = useState(true);
+  const [smokeFrame, setSmokeFrame] = useState<SmokeFrame | null>(null);
+  const [smokeError, setSmokeError] = useState('');
+  const [batchSteps, setBatchSteps] = useState(16);
+  const [tracersEnabled, setTracersEnabled] = useState(false);
+  const [tracerFrame, setTracerFrame] = useState<TracerFrame | null>(null);
+  const [tracerError, setTracerError] = useState('');
   const controller = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   const [running, setRunning] = useState(false);
@@ -50,6 +64,9 @@ export function SolverPanel({ context }: { context: GPUContext }) {
     return () => {
       abort.abort();
       solver.current?.dispose();
+      tracers.current?.dispose();
+      tracers.current = null;
+      smoke.current?.dispose(); smoke.current = null;
       solver.current = null;
       document.removeEventListener("visibilitychange", pauseWhenHidden);
     };
@@ -75,7 +92,35 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           : await solver.current.step(count);
         if (!abort.signal.aborted) {
           setStats(next);
-          setTiming({ msPerStep: reset ? null : (performance.now()-started)/count, scratchBytes: solver.current.scratchBytes });
+          if (reset) {
+            tracers.current?.dispose(); tracers.current = null; setTracerFrame(null); setTracerError('');
+            smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeError('');
+          } else if (tracersEnabled) {
+            try {
+              if (!tracers.current) tracers.current = await createTracers(context, obstacle, abort.signal);
+              const positions = await tracers.current.advance(count);
+              if (!abort.signal.aborted) setTracerFrame({ positions, step: next.steps });
+            } catch (failure) {
+              if (!abort.signal.aborted) {
+                tracers.current?.dispose(); tracers.current = null; setTracerFrame(null); setTracersEnabled(false);
+                setTracerError(failure instanceof Error ? failure.message : 'Visualization unavailable.');
+              }
+            }
+          }
+          if (!reset && smokeEnabled && !abort.signal.aborted) {
+            try {
+              if (!smoke.current) smoke.current = await createSmoke(context,abort.signal);
+              const frame = await smoke.current.advance(count,next.steps);
+              if (!abort.signal.aborted) setSmokeFrame(frame);
+            } catch (failure) {
+              if (!abort.signal.aborted) {
+                smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeEnabled(false);
+                setSmokeError(failure instanceof Error ? failure.message : 'Visualization unavailable.');
+              }
+            }
+          }
+          if (abort.signal.aborted) return false;
+          setTiming({ msPerStep: reset ? null : (performance.now()-started)/count, scratchBytes: solver.current.scratchBytes+(tracers.current?.bytes ?? 0)+(smoke.current?.bytes ?? 0) });
           if (reset) setForceHistory([]);
           else {
             const sample = solver.current.lastForceSamples.at(-1);
@@ -98,7 +143,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         if (!abort.signal.aborted) setBusy(false);
       }
     },
-    [context, targetSpeed, obstacleKind, rampSteps],
+    [context, targetSpeed, obstacleKind, rampSteps, tracersEnabled, obstacle, smokeEnabled],
   );
 
   useEffect(() => {
@@ -111,7 +156,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         setRunning(false);
         return;
       }
-      const completed = await operate(false, 4);
+      const completed = await operate(false, batchSteps);
       if (completed && !cancelled)
         frame = requestAnimationFrame(() => {
           void tick();
@@ -124,11 +169,13 @@ export function SolverPanel({ context }: { context: GPUContext }) {
       cancelled = true;
       cancelAnimationFrame(frame);
     };
-  }, [running, operate]);
+  }, [running, operate, batchSteps]);
 
   function changeSpeed(value: number) {
     solver.current?.dispose();
     solver.current = null;
+    tracers.current?.dispose(); tracers.current = null; setTracerFrame(null); setTracerError('');
+    smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeError('');
     setTargetSpeed(value);
     setForceHistory([]);
   }
@@ -142,6 +189,8 @@ export function SolverPanel({ context }: { context: GPUContext }) {
     try {
       solver.current?.dispose();
       solver.current = null;
+      tracers.current?.dispose(); tracers.current = null; setTracerFrame(null); setTracerError('');
+      smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeError('');
       // Reinitialize the whole fluid when geometry changes. Former solids must
       // never become fluid with zero populations left inside them.
       await initializeFluid(context, abort.signal);
@@ -234,6 +283,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         </p>
       </div>
       <div className="flex flex-wrap gap-3">
+        <label className="text-sm text-slate-300">Simulation pace<select value={batchSteps} disabled={running || busy} onChange={(event) => setBatchSteps(Number(event.target.value))} className="ml-3 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 disabled:opacity-40"><option value="4">Gentle — 4 steps/update</option><option value="8">Balanced — 8 steps/update</option><option value="16">Fast — 16 steps/update</option></select></label>
         <button
           className={buttonStyle}
           disabled={!running && (busy || Boolean(error))}
@@ -260,6 +310,30 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           Reset fluid
         </button>
       </div>
+      <FlowViewer
+        context={context}
+        steps={stats.steps}
+        targetSpeed={targetSpeed}
+        obstacle={obstacle}
+        tracerFrame={tracerFrame}
+        tracersEnabled={tracersEnabled}
+        tracerBusy={running || busy}
+        tracerError={tracerError}
+        smokeFrame={smokeFrame}
+        smokeEnabled={smokeEnabled}
+        smokeError={smokeError}
+        onSmokeEnabled={(enabled) => {
+          if (inFlight.current || running) return;
+          smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeError(''); setSmokeEnabled(enabled);
+          setTiming((previous) => previous ? { ...previous, scratchBytes: (solver.current?.scratchBytes ?? 0)+(tracers.current?.bytes ?? 0) } : null);
+        }}
+        onTracersEnabled={(enabled) => {
+          if (inFlight.current || running) return;
+          tracers.current?.dispose(); tracers.current = null;
+          setTracerFrame(null); setTracerError(''); setTracersEnabled(enabled);
+          setTiming((previous) => previous ? { ...previous, scratchBytes: (solver.current?.scratchBytes ?? 0)+(smoke.current?.bytes ?? 0) } : null);
+        }}
+      />
       <dl className="grid gap-4 text-sm sm:grid-cols-2">
         {[
           ["Simulation steps", stats.steps.toLocaleString()],
@@ -280,16 +354,11 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           </div>
         ))}
       </dl>
-      <p className="text-xs leading-5 text-slate-400">Batch timing includes calculation and diagnostic readback; it is not rendering FPS or a GPU-only timer. Memory estimates do not report total or free VRAM.</p>
+      <p className="text-xs leading-5 text-slate-400">Faster pace advances more actual airflow steps per update; GPU throughput determines elapsed progress. Batch timing includes enabled smoke/tracer work and readback, not rendering FPS. Memory estimates include their calculation buffers, but exclude renderer overhead and do not report total or free VRAM.</p>
       {obstacle.sphere && (
         <ForcePanel sample={stats.forces ?? null} history={forceHistory} />
       )}
-      <FlowViewer
-        context={context}
-        steps={stats.steps}
-        targetSpeed={targetSpeed}
-        obstacle={obstacle}
-      />
+
       <p className="text-xs leading-5 text-slate-400">
         Density and speed checks cover every fluid cell after each batch. Side,
         top, and bottom boundaries are free-slip; there is no ground friction or
