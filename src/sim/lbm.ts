@@ -29,7 +29,7 @@ export async function createSolver(
   validateSettings(settings);
   signal.throwIfAborted();
   const { device, resources, grid } = context;
-  const obstacle = createObstacle(grid, settings.obstacle, settings.sphereRadius);
+  const obstacle = createObstacle(grid, settings.obstacle, settings.sphereRadius, settings.sphereCenter);
   const surfaceLinks = obstacle.solidCells ? buildSurfaceLinks(grid, obstacle) : new Uint32Array();
   const forceGroups = Math.ceil(surfaceLinks.length/2/64);
   let lastForceSamples: ForceSample[] = [];

@@ -13,6 +13,7 @@ export interface SolverSettings {
   acceleration: number;
   obstacle: ObstacleKind;
   sphereRadius?: number;
+  sphereCenter?: readonly [number, number, number];
 }
 export const DEFAULT_SETTINGS: SolverSettings = {
   targetSpeed: 0.03,
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: SolverSettings = {
   obstacle: 'none',
 };
 export function validateSettings(settings: SolverSettings) {
+  if (settings.sphereCenter !== undefined && (settings.obstacle !== 'sphere' || settings.sphereCenter.length !== 3 || settings.sphereCenter.some((value) => !Number.isFinite(value)))) throw new Error('A custom center requires a sphere and three finite coordinates.');
   if (settings.sphereRadius !== undefined && (!Number.isFinite(settings.sphereRadius) || settings.sphereRadius <= 0 || settings.obstacle !== 'sphere')) {
     throw new Error('A custom radius requires a sphere and must be positive and finite.');
   }

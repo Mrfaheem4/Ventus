@@ -145,6 +145,22 @@ async function mockGPU(
   }, mode);
 }
 
+for (const mode of ['low-limits', 'oom'] as const) {
+test(`an explicit resolution failure (${mode}) recovers without retained devices`, async ({ page }) => {
+  await page.routeWebSocket('**', (socket) => socket.close());
+  await mockGPU(page, mode);
+  await page.goto('/');
+  await expect(page.getByRole('status')).toContainText('GPU ready');
+  await page.getByLabel('Simulation resolution').selectOption('fine');
+  await expect(page.getByRole('alert')).toContainText(mode === 'low-limits' ? 'selected resolution exceeds' : 'Could not allocate the selected resolution');
+  expect(await page.evaluate(() => window.gpuTest.activeDevices)).toBe(0);
+  expect(await page.evaluate(() => window.gpuTest.activeResources)).toBe(0);
+  await page.getByLabel('Simulation resolution').selectOption('auto');
+  await expect(page.getByRole('status')).toContainText('GPU ready');
+  expect(await page.evaluate(() => window.gpuTest.activeDevices)).toBe(1);
+});
+}
+
 test("startup memory estimate includes both distributions, flags, field and parameters", () => {
   const memory = gridMemory(STARTER_GRIDS[0]);
   expect(memory.cells).toBe(65536);
@@ -188,7 +204,7 @@ test("allocates the grid and releases old resources on reinitialization", async 
   await mockGPU(page);
   await page.goto("/");
   await expect(page.getByRole("status")).toContainText("GPU ready");
-  await expect(page.getByText("64 × 32 × 32")).toBeVisible();
+  await expect(page.getByText("64 × 32 × 32", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reinitialize GPU" }).click();
   await expect(page.getByRole("status")).toContainText("GPU ready");
   expect(

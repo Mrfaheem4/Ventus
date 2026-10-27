@@ -8,6 +8,7 @@ import { createObstacle } from "../geometry/sphere";
 import type { ObstacleKind } from "../geometry/sphere";
 import type { ForceSample } from "../sim/forces";
 import { ForcePanel } from "./ForcePanel";
+import { resolutionScale } from '../gpu/grid';
 
 const initialStats: FlowStats = {
   steps: 0,
@@ -21,15 +22,18 @@ const buttonStyle =
   "rounded-lg border border-cyan-400/40 px-4 py-2 text-sm text-cyan-200 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-cyan-400";
 
 export function SolverPanel({ context }: { context: GPUContext }) {
+  const scale = resolutionScale(context.grid);
+  const rampSteps = Math.round(300*scale*scale);
   const solver = useRef<Solver | null>(null);
   const controller = useRef<AbortController | null>(null);
   const inFlight = useRef(false);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [targetSpeed, setTargetSpeed] = useState(0.03);
+  const [targetSpeed, setTargetSpeed] = useState(Math.min(0.08, 0.03/scale));
   const [stats, setStats] = useState(initialStats);
   const [error, setError] = useState("");
   const [forceHistory, setForceHistory] = useState<ForceSample[]>([]);
+  const [timing, setTiming] = useState<{ msPerStep: number | null; scratchBytes: number } | null>(null);
   const [obstacleKind, setObstacleKind] = useState<ObstacleKind>("sphere");
   const obstacle = useMemo(
     () => createObstacle(context.grid, obstacleKind),
@@ -63,12 +67,15 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           solver.current = await createSolver(context, abort.signal, {
             targetSpeed,
             obstacle: obstacleKind,
+            rampSteps,
           });
+        const started = performance.now();
         const next = reset
           ? await solver.current.reset()
           : await solver.current.step(count);
         if (!abort.signal.aborted) {
           setStats(next);
+          setTiming({ msPerStep: reset ? null : (performance.now()-started)/count, scratchBytes: solver.current.scratchBytes });
           if (reset) setForceHistory([]);
           else {
             const sample = solver.current.lastForceSamples.at(-1);
@@ -91,7 +98,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         if (!abort.signal.aborted) setBusy(false);
       }
     },
-    [context, targetSpeed, obstacleKind],
+    [context, targetSpeed, obstacleKind, rampSteps],
   );
 
   useEffect(() => {
@@ -141,6 +148,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
       if (!abort.signal.aborted) {
         setObstacleKind(kind);
         setStats(initialStats);
+        setTiming(null);
         setForceHistory([]);
       }
     } catch (failure) {
@@ -207,22 +215,22 @@ export function SolverPanel({ context }: { context: GPUContext }) {
       </div>
       <div>
         <label htmlFor="inlet-speed" className="block text-sm text-slate-300">
-          Target inlet speed: {targetSpeed.toFixed(3)} lattice units
+          Target inlet speed: {targetSpeed.toFixed(4)} lattice units
         </label>
         <input
           id="inlet-speed"
           type="range"
           min="0"
           max="0.08"
-          step="0.005"
+          step="0.0001"
           value={targetSpeed}
           disabled={running || busy || stats.steps > 0}
           onChange={(event) => changeSpeed(Number(event.target.value))}
           className="mt-3 w-full accent-cyan-400 disabled:opacity-40"
         />
         <p className="mt-1 text-xs text-slate-400">
-          Wind ramps up over 300 simulation steps. Reset before changing speed.
-          Physical m/s scaling comes later.
+          Wind ramps up over {rampSteps.toLocaleString()} simulation steps. Reset before changing speed.
+          Resolution presets adjust the initial lattice speed and ramp duration to keep the starting Reynolds number comparable. Very small fallback grids cap the initial speed. Physical m/s scaling comes later.
         </p>
       </div>
       <div className="flex flex-wrap gap-3">
@@ -263,6 +271,8 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           ["Maximum flow speed", stats.maxSpeed.toFixed(6)],
           ["Maximum Mach estimate", (stats.maxSpeed * Math.sqrt(3)).toFixed(4)],
           ["Flagged unstable cells", String(stats.invalidCells)],
+          ['Latest batch wall time / step', timing?.msPerStep != null ? `${timing.msPerStep.toFixed(3)} ms` : '—'],
+          ['Grid + solver allocation estimate', `${((context.memory.totalBytes+(timing?.scratchBytes ?? 0))/1024**2).toFixed(2)} MiB${timing ? '' : ' (solver not yet measured)'}`],
         ].map(([name, value]) => (
           <div key={name}>
             <dt className="text-slate-400">{name}</dt>
@@ -270,6 +280,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           </div>
         ))}
       </dl>
+      <p className="text-xs leading-5 text-slate-400">Batch timing includes calculation and diagnostic readback; it is not rendering FPS or a GPU-only timer. Memory estimates do not report total or free VRAM.</p>
       {obstacle.sphere && (
         <ForcePanel sample={stats.forces ?? null} history={forceHistory} />
       )}

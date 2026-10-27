@@ -1,9 +1,11 @@
 import { allocateGrid } from "./buffers";
 import { fitsGrid, gridMemory, STARTER_GRIDS } from "./grid";
+import type { Grid } from './grid';
 
 export async function initializeGPU(
   signal: AbortSignal,
   onFatal: (message: string) => void,
+  requestedGrid?: Grid,
 ) {
   if (!window.isSecureContext) {
     throw new Error(
@@ -23,11 +25,11 @@ export async function initializeGPU(
     throw new Error(
       "No compatible GPU adapter was found. Check browser hardware acceleration and GPU drivers.",
     );
-  const candidates = STARTER_GRIDS.filter((grid) =>
+  const candidates = (requestedGrid ? [requestedGrid] : STARTER_GRIDS).filter((grid) =>
     fitsGrid(grid, adapter.limits),
   );
   if (!candidates.length)
-    throw new Error("This GPU cannot fit the smallest supported startup grid.");
+    throw new Error(requestedGrid ? 'The selected resolution exceeds this GPU’s supported limits. Choose a smaller resolution or Automatic.' : "This GPU cannot fit the smallest supported startup grid.");
 
   const device = await adapter.requestDevice({
     label: "Ventus simulation device",
@@ -63,6 +65,7 @@ export async function initializeGPU(
   try {
     signal.throwIfAborted();
     for (const grid of candidates) {
+      if (!fitsGrid(grid, device.limits)) continue;
       device.pushErrorScope("out-of-memory");
       device.pushErrorScope("internal");
       device.pushErrorScope("validation");
@@ -107,7 +110,7 @@ export async function initializeGPU(
           adapter.info.vendor ||
           "Browser-managed GPU",
         timestampQueries: device.features.has("timestamp-query"),
-        fallback: grid !== STARTER_GRIDS[0],
+        fallback: !requestedGrid && grid !== STARTER_GRIDS[0],
         limits: {
           maxBufferSize: device.limits.maxBufferSize,
           maxStorageBufferBindingSize:
@@ -117,7 +120,7 @@ export async function initializeGPU(
       };
     }
     throw new Error(
-      "Not enough GPU memory for a startup grid. Close GPU-heavy applications and try again.",
+      requestedGrid ? 'Could not allocate the selected resolution. Choose a smaller resolution or Automatic.' : "Not enough GPU memory for a startup grid. Close GPU-heavy applications and try again.",
     );
   } catch (error) {
     dispose();

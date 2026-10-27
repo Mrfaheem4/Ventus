@@ -18,15 +18,20 @@ export function createObstacle(
   grid: Grid,
   kind: ObstacleKind = "none",
   radiusOverride?: number,
+  centerOverride?: readonly [number, number, number],
 ): Obstacle {
   const solidFlags = new Uint32Array(grid.nx * grid.ny * grid.nz);
   if (kind === "none")
     return { kind, sphere: null, solidFlags, solidCells: 0, blockage: 0 };
   if (kind !== "sphere") throw new Error("Unknown static obstacle.");
   const sphere: Sphere = {
-    center: [grid.nx * 0.3, grid.ny / 2, grid.nz / 2],
+    center: centerOverride ?? [grid.nx * 0.3, grid.ny / 2, grid.nz / 2],
     radius: radiusOverride ?? Math.min(grid.ny, grid.nz) * 0.115,
   };
+  if (sphere.center.length !== 3 || sphere.center.some((value) => !Number.isFinite(value))) throw new Error('Sphere center must have three finite coordinates.');
+  if (sphere.center.some((value, axis) => value-sphere.radius <= 1 || value+sphere.radius >= [grid.nx, grid.ny, grid.nz][axis]-1)) {
+    throw new Error('The sphere needs at least one fluid cell of clearance from every boundary.');
+  }
   if (
     !Number.isFinite(sphere.radius) ||
     sphere.radius <= 0 ||

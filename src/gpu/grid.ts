@@ -11,6 +11,16 @@ export const STARTER_GRIDS: readonly Grid[] = [
   { nx: 16, ny: 8, nz: 8 },
 ];
 
+// Resource presets, not accuracy guarantees. The physical domain stays fixed.
+export const RESOLUTION_PRESETS = [
+  { id: 'standard', label: 'Standard', grid: { nx: 64, ny: 32, nz: 32 } },
+  { id: 'fine', label: 'Fine', grid: { nx: 96, ny: 48, nz: 48 } },
+  { id: 'high', label: 'High', grid: { nx: 128, ny: 64, nz: 64 } },
+  { id: 'extra', label: 'Extra', grid: { nx: 160, ny: 80, nz: 80 } },
+] as const;
+
+export function resolutionScale(grid: Grid) { return grid.ny / 32; }
+
 export function gridMemory(grid: Grid) {
   const cells = grid.nx * grid.ny * grid.nz;
   const distributionBytes = cells * 19 * 4;

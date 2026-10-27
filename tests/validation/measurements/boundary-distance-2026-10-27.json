@@ -1,0 +1,276 @@
+{
+  "adapter": "amd",
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+  "reynolds": 2,
+  "tau": 0.9,
+  "speed": 0.036231884057971016,
+  "radius": 3.68,
+  "cases": [
+    {
+      "name": "baseline",
+      "grid": {
+        "nx": 64,
+        "ny": 32,
+        "nz": 32
+      },
+      "center": [
+        19.2,
+        16,
+        16
+      ],
+      "radius": 3.68,
+      "solidCells": 204,
+      "inletClearance": 15.52,
+      "outletClearance": 41.12,
+      "sideClearance": 12.32,
+      "blockage": 0.04296875,
+      "meanCd": 18.703127651526177,
+      "liftRatio": 3.716633776621717e-8,
+      "sideRatio": 1.999847055305433e-8,
+      "densityRange": [
+        0.9942470192909241,
+        1.0084474086761475
+      ],
+      "settled": true,
+      "windows": [
+        {
+          "step": 5120,
+          "cd": 18.703757625334738,
+          "lift": 1.941225491464138e-8,
+          "side": -7.905327947810292e-9,
+          "drag": 0.5223074448913394
+        },
+        {
+          "step": 6144,
+          "cd": 18.70314424610876,
+          "lift": 1.2310920283198357e-8,
+          "side": 7.748894859105349e-9,
+          "drag": 0.5222903161120485
+        },
+        {
+          "step": 7168,
+          "cd": 18.702481083135044,
+          "lift": -1.2856617104262114e-8,
+          "side": -1.0444637155160308e-8,
+          "drag": 0.5222717971082602
+        }
+      ],
+      "steps": 7168,
+      "wallMilliseconds": 9205.399999976158,
+      "allocationEstimateBytes": 10767392
+    },
+    {
+      "name": "inlet farther",
+      "grid": {
+        "nx": 96,
+        "ny": 32,
+        "nz": 32
+      },
+      "center": [
+        51.2,
+        16,
+        16
+      ],
+      "radius": 3.68,
+      "solidCells": 204,
+      "inletClearance": 47.52,
+      "outletClearance": 41.12,
+      "sideClearance": 12.32,
+      "blockage": 0.04296875,
+      "meanCd": 18.499079629286225,
+      "liftRatio": 2.1951582744698304e-8,
+      "sideRatio": 5.0753559066833064e-8,
+      "densityRange": [
+        0.9942610263824463,
+        1.0082111358642578
+      ],
+      "settled": true,
+      "windows": [
+        {
+          "step": 5120,
+          "cd": 18.499745456090288,
+          "lift": 2.8849171940237284e-9,
+          "side": -8.803908713161945e-10,
+          "drag": 0.5166103503834165
+        },
+        {
+          "step": 6144,
+          "cd": 18.499109976143462,
+          "lift": 5.453330231830478e-9,
+          "side": -2.6218913262709975e-8,
+          "drag": 0.5165926044355729
+        },
+        {
+          "step": 7168,
+          "cd": 18.49838345562492,
+          "lift": -1.133957994170487e-8,
+          "side": 4.740286385640502e-9,
+          "drag": 0.5165723161553615
+        }
+      ],
+      "steps": 7168,
+      "wallMilliseconds": 9473.199999988079,
+      "allocationEstimateBytes": 16141344
+    },
+    {
+      "name": "outlet farther",
+      "grid": {
+        "nx": 128,
+        "ny": 32,
+        "nz": 32
+      },
+      "center": [
+        19.2,
+        16,
+        16
+      ],
+      "radius": 3.68,
+      "solidCells": 204,
+      "inletClearance": 15.52,
+      "outletClearance": 105.11999999999999,
+      "sideClearance": 12.32,
+      "blockage": 0.04296875,
+      "meanCd": 18.707477295530172,
+      "liftRatio": 1.2409528852967439e-8,
+      "sideRatio": 5.188742956423142e-8,
+      "densityRange": [
+        0.9942150115966797,
+        1.0084197521209717
+      ],
+      "settled": true,
+      "windows": [
+        {
+          "step": 5120,
+          "cd": 18.70747783144023,
+          "lift": 5.973561201244593e-9,
+          "side": -1.1899828677996993e-8,
+          "drag": 0.5224113326439692
+        },
+        {
+          "step": 6144,
+          "cd": 18.707477006665943,
+          "lift": 2.852175384759903e-9,
+          "side": -1.6400008462369442e-8,
+          "drag": 0.5224113096119254
+        },
+        {
+          "step": 7168,
+          "cd": 18.70747704848435,
+          "lift": -6.4828782342374325e-9,
+          "side": -2.7106580091640353e-8,
+          "drag": 0.5224113107797166
+        }
+      ],
+      "steps": 7168,
+      "wallMilliseconds": 12166.400000035763,
+      "allocationEstimateBytes": 21515296
+    },
+    {
+      "name": "sides farther",
+      "grid": {
+        "nx": 64,
+        "ny": 64,
+        "nz": 64
+      },
+      "center": [
+        19.2,
+        32,
+        32
+      ],
+      "radius": 3.68,
+      "solidCells": 204,
+      "inletClearance": 15.52,
+      "outletClearance": 41.12,
+      "sideClearance": 28.32,
+      "blockage": 0.0107421875,
+      "meanCd": 16.816491410161365,
+      "liftRatio": 3.669516816474128e-8,
+      "sideRatio": 6.407443315121206e-8,
+      "densityRange": [
+        0.9950302243232727,
+        1.0078067779541016
+      ],
+      "settled": true,
+      "windows": [
+        {
+          "step": 9216,
+          "cd": 16.81734048194699,
+          "lift": -1.7233105609193444e-8,
+          "side": 1.7957063391804695e-8,
+          "drag": 0.4696287405422481
+        },
+        {
+          "step": 10240,
+          "cd": 16.816517460749097,
+          "lift": -4.230969352647662e-9,
+          "side": -3.008972271345556e-8,
+          "drag": 0.46960575745470123
+        },
+        {
+          "step": 11264,
+          "cd": 16.815616287788014,
+          "lift": -1.888111000880599e-9,
+          "side": -2.735760062932968e-8,
+          "drag": 0.4695805919582199
+        }
+      ],
+      "steps": 11264,
+      "wallMilliseconds": 51069,
+      "allocationEstimateBytes": 43011104
+    },
+    {
+      "name": "all farther",
+      "grid": {
+        "nx": 128,
+        "ny": 64,
+        "nz": 64
+      },
+      "center": [
+        51.2,
+        32,
+        32
+      ],
+      "radius": 3.68,
+      "solidCells": 204,
+      "inletClearance": 47.52,
+      "outletClearance": 73.11999999999999,
+      "sideClearance": 28.32,
+      "blockage": 0.0107421875,
+      "meanCd": 15.822588687425672,
+      "liftRatio": 9.81845205601521e-8,
+      "sideRatio": 2.309389631116216e-8,
+      "densityRange": [
+        0.9951756000518799,
+        1.0070337057113647
+      ],
+      "settled": true,
+      "windows": [
+        {
+          "step": 9216,
+          "cd": 15.823351243238637,
+          "lift": 1.4115357771515846e-9,
+          "side": -1.0204530553892255e-8,
+          "drag": 0.4418713246304833
+        },
+        {
+          "step": 10240,
+          "cd": 15.822611998188934,
+          "lift": -4.338289727456868e-8,
+          "side": 8.731149137020111e-9,
+          "drag": 0.4418506810143299
+        },
+        {
+          "step": 11264,
+          "cd": 15.821802820849442,
+          "lift": -3.747118171304464e-9,
+          "side": 9.480572771281004e-9,
+          "drag": 0.4418280845202389
+        }
+      ],
+      "steps": 11264,
+      "wallMilliseconds": 119679.30000001192,
+      "allocationEstimateBytes": 86002720
+    }
+  ],
+  "note": "Same solid-cell pattern, lattice speed, viscosity and Re in every case. Time-window settling is diagnostic; this does not prove domain independence. No boundary formula was tuned to a reference."
+}

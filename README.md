@@ -48,6 +48,7 @@ WebGPU does not provide a reliable total/free VRAM reading. The app can report r
 - An orbitable Three.js viewer with speed and pressure slices, labeled color scales, and optional cell outlines.
 - A hideable slice and a voxel-body view showing the shape the solver actually uses.
 - Density, speed, stability, and basic dimensionless-flow readouts.
+- Selectable simulation resolution, memory estimates, and measured batch time per step.
 - Signed sphere forces, provisional drag/lift coefficients, and a drag history chart.
 - Automated GPU, CPU-reference, analytical-flow, reset, and viewer checks.
 
@@ -65,6 +66,10 @@ Current sphere results are a low-Reynolds-number demonstration. They do not esta
 6. Pause to inspect the state, advance one step, or reset the fluid.
 
 Changing the test scene resets the simulation. A nearly uniform color can be correct for an empty tunnel. Smoke-like trails and particle visualization are not implemented yet.
+
+Use **Simulation resolution** to choose Standard (64 × 32 × 32), Fine (96 × 48 × 48), High (128 × 64 × 64), or Extra (160 × 80 × 80). Automatic keeps the conservative startup and smaller-grid fallback. Changing resolution starts a fresh scene and resets the flow, history, and wind settings. Explicit selections report allocation failures rather than silently substituting a smaller grid.
+
+The presets adjust the starting lattice wind speed and ramp duration to keep the initial Reynolds number comparable. A finer grid needs more steps to cover the same flow development. These are resource presets, not validated accuracy levels; memory estimates exclude rendering and driver overhead, and batch timing is not frame rate.
 
 ## Roadmap
 
@@ -97,7 +102,8 @@ Models will remain stationary during a simulation in this phase. Moving ground, 
 
 - [ ] Measure simulation speed, memory requirements, and sustained responsiveness.
 - [ ] Establish tested hardware baselines and useful quality tiers.
-- [ ] Automatic starting settings with advanced quality controls.
+- [x] Conservative automatic startup and explicit resolution choices with resource estimates.
+- [ ] Performance-based automatic quality selection and broader advanced controls.
 - [ ] Higher-resolution grids and support for larger allocations where available.
 - [ ] Improve memory efficiency and GPU scheduling.
 - [ ] Scale simulation quality and rendering quality independently.
@@ -155,6 +161,7 @@ Open the local address printed by Vite. In Windows PowerShell, use `npm.cmd` if 
 | `npm run lint` | Check source code |
 | `npm test` | Run automated checks |
 | `npm run study:drag` | Run the longer, isolated GPU sphere study |
+| `npm run study:boundaries` | Isolate inlet, outlet, and side-distance effects |
 
 ## Validation and development
 
@@ -170,6 +177,8 @@ npm.cmd test
 Real GPU tests are explicitly skipped if no compatible adapter is available. A skipped GPU check is not evidence that the simulation passed validation. Analytical formulas, test criteria, example measurements, and limits are documented in the [validation notes](tests/validation/README.md).
 
 The [sphere force study](tests/validation/sphere-drag.md) records resolution, tunnel size, memory estimates, timings, and the unresolved difference from an isolated-sphere reference. The study runs with one worker to avoid competition between tests for the GPU.
+
+The [boundary-distance study](tests/validation/boundary-distance.md) changes one set of boundary distances at a time while preserving the exact voxel sphere. It provides a baseline for future boundary-formula changes.
 
 Keep current capabilities separate from future goals. Changes to physics or shaders should include relevant validation and a performance note; performance figures should come from measurements. Passing basic benchmarks does not guarantee accuracy for arbitrary uploaded models.
 
