@@ -74,3 +74,5 @@ The sphere remains a cell-center voxel mask with half-way reflection rather than
 Memory figures count explicitly allocated study-grid buffers/textures and solver buffers. They exclude browser, renderer, driver overhead, texture padding, CPU arrays, and the idle demo's resources; they are not total VRAM usage. Timings cover simulation batches and readbacks after study initialization, with no deliberate viewer interaction. The test page can retain its idle demo viewer. Timings use wall time, not GPU timestamp queries, and cannot be interpreted as interactive frame rates or guaranteed device performance.
 
 Next: improve domain independence, assess inlet/outlet effects, refine curved boundaries and the sphere, and repeat at additional Re and relaxation times before treating force coefficients as validated measurements.
+
+**Historical boundary formulation:** the saved measurements above predate the 28 October 2026 velocity-inlet correction. Rerunning these scripts uses the current solver. See [boundary correction notes](flow-playback.md); old measurements must not be presented as validation of the new formulation.

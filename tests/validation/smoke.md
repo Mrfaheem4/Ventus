@@ -1,39 +1,21 @@
-# First transported smoke volume
+# Thin smoke-style flow lines - 30 October 2026
 
-The smoke view addresses the sparse tracers' poor visibility and dependence on an opaque slice. It defaults to white volume-rendered smoke, with diagnostic tracers off and the slice hidden. An enabled slice starts at 20% opacity, can be adjusted, and does not write depth. The larger viewer gives the smoke more screen space.
+The default view now uses eleven inlet positions, each with three tightly bundled, soft-edged ribbons. A small GPU kernel traces 3D instantaneous streamlines through the solver velocity texture using normalized-direction midpoint integration at half-cell arc-length intervals. It does not add procedural curls, noise or a turbulence model. Line length is bounded and integration stops at low/invalid speed, domain exit, solid cells, or an intersection with the analytic sphere. The centre line can stop at the front stagnation point; it is not artificially bent around the object.
 
-## Transport
+These are smoke-style streamlines: they show direction in a snapshot of the velocity solution. They are not time-resolved streaklines, particles, transported scalar smoke, or evidence of turbulent motion. A steady solution produces stationary centre paths. Subtle width/opacity wisps now move along them as a visual marker. The default fog-volume implementation, volume ray marcher and now-obsolete interpolation tests were removed. Diagnostic moving tracers remain optional. This change does not implement the planned calculate-then-explore workflow.
 
-`smoke.wgsl` transports a passive scalar concentration using the solver's actual 3D velocity texture. This is a visual marker, not a new fluid or turbulence model. The scalar does not feed back into momentum, force measurements, or air density.
+Each snapshot has 33 paths, `ceil(nx*1.25/0.5)+1` points per path, and four f32 values per point (position and speed/validity). At Standard this is 85,008 bytes per readback and about 166 KiB of calculation/readback buffers, plus a 32-byte uniform. No scalar density grid, 3D volume upload, ray marching, extra depth target or continuous idle render loop is used. Renderer ribbons use fixed buffers that are updated from the path snapshot. These costs are not total memory or an FPS claim.
 
-The scalar grid matches the airflow grid, including higher resolution presets. Two f32 storage buffers ping-pong concentration; newly allocated buffers start at zero. Seven narrow Gaussian emitters span normalized Y positions 0.26?0.74 near the Z center. A slow emission-only sinusoidal pulse changes concentration, never air velocity. No synthetic vortices are added.
+Focused checks use a known constant vector field to verify streamline direction, zero velocity to verify no paths, and a sphere to verify termination before the true surface. One UI check verifies rendering, frozen pause, reset, the sphere and empty scene, and shader error reporting. A separate layout check covers desktop and narrow viewports. GPU checks run sequentially; no broad performance or resolution sweep is required for a visual change.
 
-Each airflow batch is followed by a semi-Lagrangian backward trace using the latest end-of-batch velocity snapshot. It uses midpoint backtrace intervals of at most two lattice time steps, samples the old concentration using separable bounded Catmull-Rom reconstruction. Each interpolation is clamped to its central pair to prevent new extrema. The previous arbitrary decay has been removed; stationary smoke now persists. Velocity remains trilinearly interpolated. Inlet values are prescribed; solids at output centers are zeroed, and midpoint/endpoint solid checks suppress traced paths through the body. Out-of-domain paths are zeroed. These sampled collision checks and a finite scalar grid do not guarantee exclusion of every thin/diagonal feature. Semi-Lagrangian interpolation is diffusive and is not a conservative smoke-mass solver. Transfer to the renderer is quantized to 8 bits.
+Historical measurements in `measurements/` describe earlier implementations and are not benchmarks of these smoke lines.
 
-This is a visual scalar and a batch-wise temporal approximation, not a validated smoke transport solver. It can smooth small structures, especially on long runs. It cannot reveal vortices absent from the velocity solution, and changing smoke appearance does not establish quantitative CFD accuracy. Default sphere flow remains low-Re and may be smooth.
+## Moving wisps
 
-## Rendering and resource cost
+A small procedural opacity/thickness texture gives the narrow ribbons a less rigid appearance. Path travel time is accumulated from segment lengths and sampled speed; a common simulation-time phase moves texture downstream. Display time interpolates between completed solver-step targets and never advances beyond the latest calculated step. The animation loop aims for at most 30 decorative redraws/s; camera and data changes can request additional renders. Pause freezes it, and reset clears phase. No extra flow-field readbacks or GPU advection passes are added for these wisps.
 
-GPU packing transfers one byte per cell per update: 65,536 bytes at Standard and 1,024,000 at Extra. Calculation buffers use approximately 10 bytes/cell plus 32 bytes: 0.625 MiB at Standard and 9.77 MiB at Extra. These estimates exclude renderer and driver resources. Higher resolution now increases smoke cost too.
+Each strand has an independent randomly generated seed and noise spacing, so neighbouring strands do not repeat the same wisp sequence with an offset. Seeds remain stable between snapshots and while paused; resetting clears them. Smooth noise varies thickness and opacity without displacing the calculated paths.
 
-The single-channel 3D texture is rendered with 96 samples per ray. Four density samples toward a fixed light approximate light attenuation at each sample, giving smoke depth. Opaque-scene depth clips rays against the body. This is approximate single scattering, not a physically calibrated optical renderer. Empty-space acceleration, emission controls and further performance work remain planned. Tracer trails use 96 samples and additive blending to avoid dark faded tails painting over the scene. Hidden slices no longer trigger GPU readbacks.
+This is visual smoke detail, not transported scalar density, a turbulence model, or a physical vortex. Centre paths remain those traced from the solver. Width and opacity noise cannot be used as evidence of CFD accuracy.
 
-Smoke and tracers stop with simulation time. Reset, geometry/resolution changes, disabling visualization, reinitialization, and unmount release/reset their calculation resources and history. Creation errors disable the affected visualization while a healthy solver can continue. Device loss uses the existing recovery flow.
-
-## Simulation pace
-
-The original interactive loop advanced four solver steps per animation update, with GPU readback and rendering overhead on each update. The new Gentle/Balanced/Fast choices run 4/8/16 actual airflow steps per update; Fast is the default. This amortizes scheduling and visualization overhead. It does not multiply marker speed or wind speed, skip airflow solver steps, or promise a fixed wall-clock speedup. Larger batches use a longer frozen velocity interval for visualization, while the underlying LBM still computes every step. Smaller batches trade throughput for more frequent visual field sampling. GPU throughput and rendering cost determine actual progress.
-
-`npm run study:playback` compares complete four-step tracer and sixteen-step smoke configurations. It includes solver, readbacks, React, scheduling, and rendering; this is not an isolated timing or an FPS benchmark.
-
-### Historical playback comparison, before visual refinement: 27 October 2026
-
-One sequential Edge/WebGPU run at Standard resolution measured approximately **155 steps/s** for four-step tracers and **468 steps/s** for sixteen-step smoke, about 3.0x more simulated progress per wall second. Each case warmed for at least 320 steps and measured at least 1,024 more. The full [measurements](measurements/playback-cost-2026-10-27.json) include elapsed time and caveats. Polling/pause overhead is included. This comparison changes both visualization and batch size; it does not isolate their contributions, guarantee a speedup, identify a hardware tier, or establish rendering FPS.
-
-## Checks
-
-`tests/smoke.spec.ts` tests a prescribed smoke pulse in still air and in a constant 1/16-cell-per-step flow. Over 16 steps it must move exactly one cell, subject to 8-bit quantization. It checks solid output exclusion and compares four fractional Gaussian translations against the exact solution and linear remapping. The bounded cubic reconstruction must reduce the sampled absolute error by at least 30% in that case. The real browser check covers the default smoke view, faster pace, live concentration transfer, frozen pause, reset, disabling, slice opacity, screenshots, and WebGL shader errors. Real GPU checks explicitly skip without an adapter. These tests do not establish arbitrary unsteady transport accuracy or smoke mass conservation.
-
-### Refined renderer playback
-
-After full-grid smoke, bounded cubic reconstruction, 96 ray samples and density lighting, a local Standard-resolution run measured **421 simulation steps/s** with sixteen-step smoke and **145 steps/s** with four-step tracers. See [measurements](measurements/refined-playback-2026-10-27.json). This is a single sequential run, not FPS or an isolated before/after benchmark. Higher presets and other GPUs were not performance-qualified by this measurement.
+Real vortex visualization still requires a sufficiently resolved unsteady velocity field. A future vorticity/Q view can highlight rotational structures with 3D surfaces; it cannot recover sub-grid eddies. The curved-wall method improves surface placement but does not refine the velocity grid.

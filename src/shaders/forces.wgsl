@@ -7,12 +7,15 @@ struct Link { node: u32, direction: u32 };
 @group(0) @binding(1) var<storage, read> links: array<Link>;
 @group(0) @binding(2) var<storage, read_write> partials: array<vec4<f32>>;
 @group(0) @binding(3) var<uniform> p: Params;
+@group(0) @binding(4) var<storage, read> flags: array<u32>;
+@group(0) @binding(5) var<storage, read> wall_distance: array<f32>;
 var<private> c: array<vec3<i32>,19> = array<vec3<i32>,19>(
   vec3(0,0,0), vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1),
   vec3(1,1,0), vec3(-1,-1,0), vec3(1,-1,0), vec3(-1,1,0),
   vec3(1,0,1), vec3(-1,0,-1), vec3(1,0,-1), vec3(-1,0,1),
   vec3(0,1,1), vec3(0,-1,-1), vec3(0,1,-1), vec3(0,-1,1)
 );
+const opposite = array<u32,19>(0,2,1,4,3,6,5,8,7,10,9,12,11,14,13,16,15,18,17);
 var<workgroup> sums: array<vec4<f32>,64>;
 
 @compute @workgroup_size(64)
@@ -27,9 +30,22 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_
     if (abs(population) < 1e6) {
       var weight = 1.0/36.0;
       if (link.direction <= 6u) { weight = 1.0/18.0; }
-      // Body receives +2*f_i*c_i on reflection. Constant reference pressure
-      // cancels over the closed body; subtract it to reduce f32 cancellation.
-      contribution = vec4<f32>(2.0*(population-weight)*vec3<f32>(c[link.direction]), 0.0);
+      let incoming = opposite[link.direction];
+      var returned = population;
+      let surface = flags[link.node]>>3u;
+      if (surface > 0u) {
+        let q = wall_distance[(surface-1u)*19u+incoming];
+        var away = population;
+        if (q < 0.5) {
+          let offset = c[link.direction].x+i32(p.grid.x)*(c[link.direction].y+i32(p.grid.y)*c[link.direction].z);
+          away = state[link.direction*n+u32(i32(link.node)-offset)];
+        }
+        returned = reflected(population,state[incoming*n+link.node],away,q);
+      }
+      // Momentum exchange includes the actual interpolated returned population.
+      // Constant reference pressure cancels over the closed collection of links.
+      contribution = vec4<f32>((population+returned-2.0*weight)*vec3<f32>(c[link.direction]),0.0);
+      if (!(abs(returned)<1e6)) { contribution = vec4(0.0,0.0,0.0,1.0); }
     } else { contribution.w = 1.0; }
   }
   sums[lane] = contribution;

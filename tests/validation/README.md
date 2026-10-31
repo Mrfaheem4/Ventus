@@ -1,5 +1,11 @@
 # Analytical solver validation
 
+The current [curved-wall checks](curved-wall.md) and [smoke-line checks](smoke.md) can be run with `npm run test:focused`. All GPU tests now use one worker by default. Full suites and long studies are reserved for changes that need them.
+
+The [flow and playback correction](flow-playback.md) documents the current velocity inlet, its density limitation, continuous smoke, display interpolation and regression checks.
+
+The [production preset comparison](preset-resolution.md), run with `npm run study:resolution`, checks the startup sphere at matching Reynolds number and simulated duration across Standard, Fine, and High.
+
 The [smoke volume notes](smoke.md) cover passive concentration transport, rendering, pace controls, and their limits.
 
 The [passive tracer checks](tracers.md) cover 3D advection, interpolation, collision/restart behavior, and visualization lifecycle. They do not validate smoke density or turbulence.

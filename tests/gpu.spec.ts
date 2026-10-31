@@ -204,6 +204,7 @@ test("allocates the grid and releases old resources on reinitialization", async 
   await mockGPU(page);
   await page.goto("/");
   await expect(page.getByRole("status")).toContainText("GPU ready");
+  await page.getByText("Device diagnostics", { exact: true }).click();
   await page.getByText("Startup diagnostics", { exact: true }).click();
   await expect(page.getByText("64 × 32 × 32", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reinitialize GPU" }).click();
@@ -221,7 +222,8 @@ for (const mode of ["low-limits", "oom"] as const) {
     await mockGPU(page, mode);
     await page.goto("/");
     await expect(page.getByRole("status")).toContainText("GPU ready");
-    await page.getByText("Startup diagnostics", { exact: true }).click();
+    await page.getByText("Device diagnostics", { exact: true }).click();
+  await page.getByText("Startup diagnostics", { exact: true }).click();
     await expect(page.getByText("32 × 16 × 16")).toBeVisible();
     expect(await page.evaluate(() => window.gpuTest.activeResources)).toBe(5);
   });
@@ -280,6 +282,7 @@ test("real browser initializes resources when a WebGPU adapter is available", as
     "This browser environment has no WebGPU adapter; failure paths are tested separately.",
   );
   await expect(page.getByRole("status")).toContainText("GPU ready");
+  await page.getByText("Device diagnostics", { exact: true }).click();
   await page.getByText("Startup diagnostics", { exact: true }).click();
   await expect(page.getByRole("heading", { name: "Initial fluid check passed" })).toBeVisible();
   await page.screenshot({

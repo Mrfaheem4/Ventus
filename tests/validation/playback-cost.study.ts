@@ -14,7 +14,9 @@ test('compare complete UI playback at four-step tracers versus sixteen-step smok
     const read = () => steps.evaluate((element) => ({ steps: Number(element.textContent!.replaceAll(',','')),milliseconds: performance.now() }));
     if (mode === 'four-step tracers') {
       await viewer.getByLabel('Show smoke').uncheck();
+      await viewer.getByText('Inspect geometry and tracers',{ exact:true }).click();
       await viewer.getByLabel('Show airflow tracers').check();
+      await page.getByText('Wind settings',{ exact:true }).click();
       await page.getByLabel('Simulation pace').selectOption('4');
     }
     await viewer.scrollIntoViewIfNeeded();

@@ -46,7 +46,7 @@ for (const boundaryMode of ['free-slip', 'periodic'] as const) {
     const grid = { nx: 24, ny: 16, nz: 16 };
     const body = createObstacle(grid, 'sphere');
     const initial = initialField(grid);
-    const settings = { ...DEFAULT_SETTINGS, boundaryMode, obstacle: 'sphere' as const };
+    const settings = { ...DEFAULT_SETTINGS, boundaryMode, wallBoundary: 'halfway' as const, obstacle: 'sphere' as const };
     for (let i = 0; i < initial.length; i++) if (body.solidFlags[i % body.solidFlags.length]) initial[i] = 7;
     let expected = initial;
     for (let step = 1; step <= 23; step++) expected = cpuStep(expected, grid, settings, step, body.solidFlags);
@@ -195,6 +195,7 @@ test('sphere preview, voxel view, optional slice and scene reset work in the UI'
   await expect(viewer.getByTestId('slice-range')).toContainText('Slice range:');
   await viewer.getByLabel('Show slice', { exact: true }).uncheck();
   const smooth = await canvas.screenshot();
+  await viewer.getByText('Inspect geometry and tracers',{ exact:true }).click();
   await viewer.getByLabel('Show voxel body').check();
   expect((await canvas.screenshot()).equals(smooth)).toBe(false);
   await viewer.getByLabel('Show slice', { exact: true }).check();
@@ -207,6 +208,7 @@ test('sphere preview, voxel view, optional slice and scene reset work in the UI'
   await page.getByLabel('Test scene').selectOption('none');
   await expect(stepText).toHaveText('0');
   await expect(viewer.getByLabel('Show voxel body')).toHaveCount(0);
+  await page.getByText('Wind settings',{ exact:true }).evaluate(el => { (el.parentElement as HTMLDetailsElement).open = true; });
   await page.getByRole('button', { name: 'Step once' }).click();
   await expect(stepText).toHaveText('1');
   await expect(page.getByRole('alert')).toHaveCount(0);

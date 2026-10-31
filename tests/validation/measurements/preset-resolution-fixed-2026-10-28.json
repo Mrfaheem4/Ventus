@@ -1,0 +1,342 @@
+{
+  "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
+  "adapter": "amd",
+  "cases": [
+    {
+      "kind": "grid-refinement",
+      "grid": {
+        "nx": 64,
+        "ny": 32,
+        "nz": 32
+      },
+      "probes": [
+        {
+          "x": 0.15,
+          "y": 0.5,
+          "uxOverInlet": 0.8494567871093752,
+          "pressureOverDynamic": 35.08333323730365
+        },
+        {
+          "x": 0.45,
+          "y": 0.5,
+          "uxOverInlet": 0.4019419352213543,
+          "pressureOverDynamic": 34.27314820388955
+        },
+        {
+          "x": 0.6,
+          "y": 0.5,
+          "uxOverInlet": 0.7192484537760419,
+          "pressureOverDynamic": 34.39814887113043
+        },
+        {
+          "x": 0.8,
+          "y": 0.5,
+          "uxOverInlet": 0.8657328287760419,
+          "pressureOverDynamic": 34.42129534151821
+        },
+        {
+          "x": 0.3,
+          "y": 0.7,
+          "uxOverInlet": 0.8685251871744792,
+          "pressureOverDynamic": 34.17685149858397
+        }
+      ],
+      "relativeWindowSpread": 0.00001783074271299295,
+      "normalizedTime": 4096,
+      "solidCells": 204,
+      "diameterCells": 7.36,
+      "targetSpeed": 0.029999999999999992,
+      "reynolds": 6.624,
+      "tau": 0.6,
+      "viscosity": 0.033333333333333326,
+      "coreBytes": 10747936,
+      "solverScratchBytes": 19456,
+      "allocationEstimateBytes": 10767392,
+      "steps": 4096,
+      "wallMilliseconds": 4509,
+      "wallMsPerStep": 1.100830078125,
+      "settled": true,
+      "meanCd": 7.538232380013735,
+      "liftRatio": 3.676820242182426e-7,
+      "sideRatio": 1.8895484093718093e-7,
+      "windows": [
+        {
+          "step": 2560,
+          "cd": 7.5381275235081775,
+          "drag": 0.14431833308481146,
+          "lift": 4.3197360355407e-8,
+          "side": -3.187597030773759e-8
+        },
+        {
+          "step": 3072,
+          "cd": 7.53817043106358,
+          "drag": 0.144319154554978,
+          "lift": -5.3063558880239725e-8,
+          "side": 1.4537363313138485e-8
+        },
+        {
+          "step": 3584,
+          "cd": 7.538221865631965,
+          "drag": 0.14432013927580556,
+          "lift": 4.906178219243884e-8,
+          "side": -1.0855728760361671e-8
+        },
+        {
+          "step": 4096,
+          "cd": 7.538304843345659,
+          "drag": 0.14432172789383912,
+          "lift": -3.2719981390982866e-8,
+          "side": 2.727028913795948e-8
+        }
+      ],
+      "densityRange": [
+        1.0445090532302856,
+        1.0501805543899536
+      ],
+      "blockage": 0.04296875
+    },
+    {
+      "kind": "grid-refinement",
+      "grid": {
+        "nx": 96,
+        "ny": 48,
+        "nz": 48
+      },
+      "probes": [
+        {
+          "x": 0.15,
+          "y": 0.5,
+          "uxOverInlet": 0.8508300781250003,
+          "pressureOverDynamic": 51.94531381130222
+        },
+        {
+          "x": 0.45,
+          "y": 0.5,
+          "uxOverInlet": 0.4135131835937502,
+          "pressureOverDynamic": 51.16406083106998
+        },
+        {
+          "x": 0.6,
+          "y": 0.5,
+          "uxOverInlet": 0.7271575927734377,
+          "pressureOverDynamic": 51.29622563254091
+        },
+        {
+          "x": 0.8,
+          "y": 0.5,
+          "uxOverInlet": 0.8695983886718754,
+          "pressureOverDynamic": 51.30208563059572
+        },
+        {
+          "x": 0.3,
+          "y": 0.7,
+          "uxOverInlet": 0.8892135620117189,
+          "pressureOverDynamic": 51.07291741296651
+        }
+      ],
+      "relativeWindowSpread": 0.000035439192644361974,
+      "normalizedTime": 4096,
+      "solidCells": 680,
+      "diameterCells": 11.040000000000001,
+      "targetSpeed": 0.019999999999999993,
+      "reynolds": 6.624,
+      "tau": 0.6,
+      "viscosity": 0.033333333333333326,
+      "coreBytes": 36274208,
+      "solverScratchBytes": 37824,
+      "allocationEstimateBytes": 36312032,
+      "steps": 9216,
+      "wallMilliseconds": 24913.5,
+      "wallMsPerStep": 2.7032877604166665,
+      "settled": true,
+      "meanCd": 7.026913795612255,
+      "liftRatio": 3.0654118858601065e-7,
+      "sideRatio": 2.048463182076258e-7,
+      "windows": [
+        {
+          "step": 5760,
+          "cd": 7.026666389932267,
+          "drag": 0.13452634986283052,
+          "lift": -1.9305540869633355e-9,
+          "side": -3.227291421757804e-8
+        },
+        {
+          "step": 6912,
+          "cd": 7.026802549016234,
+          "drag": 0.13452895664441814,
+          "lift": 4.71482053399086e-9,
+          "side": -1.1515415584047636e-8
+        },
+        {
+          "step": 8064,
+          "cd": 7.0268872606525985,
+          "drag": 0.13453057845860408,
+          "lift": 2.3499726214342647e-8,
+          "side": -2.755809368358718e-8
+        },
+        {
+          "step": 9216,
+          "cd": 7.027051577167932,
+          "drag": 0.13453372431750824,
+          "lift": -4.124012775719166e-8,
+          "side": -2.3438284794489544e-8
+        }
+      ],
+      "densityRange": [
+        1.029990315437317,
+        1.0324496030807495
+      ],
+      "blockage": 0.03819444444444445
+    },
+    {
+      "kind": "grid-refinement",
+      "grid": {
+        "nx": 128,
+        "ny": 64,
+        "nz": 64
+      },
+      "probes": [
+        {
+          "x": 0.15,
+          "y": 0.5,
+          "uxOverInlet": 0.8468627929687502,
+          "pressureOverDynamic": 69.19907405972484
+        },
+        {
+          "x": 0.45,
+          "y": 0.5,
+          "uxOverInlet": 0.4119110107421876,
+          "pressureOverDynamic": 68.43055494957504
+        },
+        {
+          "x": 0.6,
+          "y": 0.5,
+          "uxOverInlet": 0.7260131835937502,
+          "pressureOverDynamic": 68.56481648153732
+        },
+        {
+          "x": 0.8,
+          "y": 0.5,
+          "uxOverInlet": 0.8694458007812503,
+          "pressureOverDynamic": 68.56481648153732
+        },
+        {
+          "x": 0.3,
+          "y": 0.7,
+          "uxOverInlet": 0.8838704427083335,
+          "pressureOverDynamic": 68.35185252130034
+        }
+      ],
+      "relativeWindowSpread": 0.00007242304841114371,
+      "normalizedTime": 4096,
+      "solidCells": 1672,
+      "diameterCells": 14.72,
+      "targetSpeed": 0.014999999999999996,
+      "reynolds": 6.624,
+      "tau": 0.6,
+      "viscosity": 0.033333333333333326,
+      "coreBytes": 85983264,
+      "solverScratchBytes": 66176,
+      "allocationEstimateBytes": 86049440,
+      "steps": 16384,
+      "wallMilliseconds": 170281.69999992847,
+      "wallMsPerStep": 10.39317016601126,
+      "settled": true,
+      "meanCd": 7.031366169869355,
+      "liftRatio": 4.687815325703143e-7,
+      "sideRatio": 1.6628936848762575e-7,
+      "windows": [
+        {
+          "step": 10240,
+          "cd": 7.030866084804239,
+          "drag": 0.13460675351234386,
+          "lift": 5.3247276809997857e-8,
+          "side": 2.8952854336239398e-8
+        },
+        {
+          "step": 12288,
+          "cd": 7.0311210027591695,
+          "drag": 0.13461163394640607,
+          "lift": 1.2618329492397606e-8,
+          "side": -2.238448360003531e-8
+        },
+        {
+          "step": 14336,
+          "cd": 7.03134727111721,
+          "drag": 0.13461596588058455,
+          "lift": 5.926995072513819e-8,
+          "side": -1.225271262228489e-8
+        },
+        {
+          "step": 16384,
+          "cd": 7.031630235731686,
+          "drag": 0.13462138327122375,
+          "lift": 6.310801836661994e-8,
+          "side": -2.8430804377421737e-9
+        }
+      ],
+      "densityRange": [
+        1.022633671760559,
+        1.0241316556930542
+      ],
+      "blockage": 0.0400390625
+    }
+  ],
+  "reference": {
+    "name": "Schiller–Naumann isolated smooth sphere",
+    "reynolds": 6.624,
+    "cd": 5.615199897185609
+  },
+  "successiveDragChanges": [
+    {
+      "from": {
+        "nx": 64,
+        "ny": 32,
+        "nz": 32
+      },
+      "to": {
+        "nx": 96,
+        "ny": 48,
+        "nz": 48
+      },
+      "relativeChange": 0.07276574030561721
+    },
+    {
+      "from": {
+        "nx": 96,
+        "ny": 48,
+        "nz": 48
+      },
+      "to": {
+        "nx": 128,
+        "ny": 64,
+        "nz": 64
+      },
+      "relativeChange": 0.0006332160990533751
+    }
+  ],
+  "comparison": [
+    {
+      "kind": "grid-refinement",
+      "diameterCells": 7.36,
+      "meanCd": 7.538232380013735,
+      "relativeDifference": 0.3424691049364009,
+      "matchesWithin15Percent": false
+    },
+    {
+      "kind": "grid-refinement",
+      "diameterCells": 11.040000000000001,
+      "meanCd": 7.026913795612255,
+      "relativeDifference": 0.25140937531613256,
+      "matchesWithin15Percent": false
+    },
+    {
+      "kind": "grid-refinement",
+      "diameterCells": 14.72,
+      "meanCd": 7.031366169869355,
+      "relativeDifference": 0.25220228996541016,
+      "matchesWithin15Percent": false
+    }
+  ],
+  "note": "Finite tunnel, coarse cell-center geometry, and simple open boundaries differ from the unbounded empirical reference. Comparison outcomes are diagnostic, not an accuracy badge. Presets start from rest with matched ramps and finish at identical diffusive time; settling and grid agreement are reported, not assumed. Timing is wall time including health/force readback, not GPU timestamps."
+}

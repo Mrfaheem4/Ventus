@@ -1,0 +1,17 @@
+{
+  "cases": [
+    {
+      "mode": "four-step tracers",
+      "steps": 1040,
+      "elapsedMilliseconds": 19031.600000023842,
+      "stepsPerWallSecond": 54.64595724997883
+    },
+    {
+      "mode": "sixteen-step smoke",
+      "steps": 1248,
+      "elapsedMilliseconds": 7573.800000071526,
+      "stepsPerWallSecond": 164.77857878320185
+    }
+  ],
+  "note": "One sequential Edge/WebGPU run at default Standard resolution. Wall time includes solver, visualization, React, rendering, readbacks and scheduling. Warmup >=320 steps; each measured interval >=1024 steps. Polling and pause contribute timing overhead. This compares two complete configurations, not an isolated effect or guaranteed speedup. Not a rendering FPS measurement."
+}

@@ -119,6 +119,7 @@ test("GPU impulse matches CPU exchange, ring batches, and fluid momentum loss", 
     ...DEFAULT_SETTINGS,
     obstacle: "sphere" as const,
     boundaryMode: "periodic" as const,
+    wallBoundary: "halfway" as const,
   };
   const initial = initialField(grid);
   for (let i = 0; i < initial.length; i++)
@@ -267,6 +268,7 @@ test("force readouts and history reset with the scene", async ({ page }) => {
     Boolean(navigator.gpu && (await navigator.gpu.requestAdapter())),
   );
   test.skip(!supported, "A real GPU is required.");
+  await page.getByText("Simulation diagnostics", { exact: true }).click();
   const panel = page.getByRole("region", { name: "Sphere force measurements" });
   await expect(
     panel.getByRole("img", { name: "Drag coefficient history" }),

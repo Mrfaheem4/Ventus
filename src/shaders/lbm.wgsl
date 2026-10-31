@@ -7,6 +7,7 @@ struct Params {
 @group(0) @binding(1) var<storage, read_write> destination: array<f32>;
 @group(0) @binding(2) var<storage, read> flags: array<u32>;
 @group(0) @binding(3) var<uniform> p: Params;
+@group(0) @binding(4) var<storage, read> wall_distance: array<f32>;
 
 var<private> c: array<vec3<i32>, 19> = array<vec3<i32>, 19>(
   vec3(0,0,0), vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1),
@@ -37,17 +38,31 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     for (var i = 0u; i < 19u; i++) { destination[i*n+node] = 0.0; }
     return;
   }
-  // Modes 2/3 wrap X for periodic/vortex and forced-channel verification.
-  if (p.boundary_mode < 2u && id.x == 0u) {
-    let t = min(f32(p.step) / f32(p.ramp_steps), 1.0);
-    let velocity = p.inlet * (t*t*(3.0-2.0*t));
-    for (var i = 0u; i < 19u; i++) { destination[i*n+node] = equilibrium(i, 1.0, velocity); }
+  if (p.boundary_mode < 2u && id.x == p.grid.x-1u) {
+    // Zero-gradient outlet. Density is free to respond to the startup instead
+    // of imposing a second incompatible condition on the entering flow.
+    for (var i = 0u; i < 19u; i++) { destination[i*n+node] = source[i*n+node-1u]; }
     return;
   }
-  if (p.boundary_mode < 2u && id.x == p.grid.x-1u) {
-    // First-order zero-gradient outlet: extrapolate previous upstream populations.
-    let upstream = node-1u;
-    for (var i = 0u; i < 19u; i++) { destination[i*n+node] = source[i*n+upstream]; }
+  if (p.boundary_mode < 2u && id.x == 0u) {
+    // Non-equilibrium extrapolation (Guo, Zheng & Shi, 2002), applied to
+    // post-collision populations. Preserve the adjacent fluid stress while
+    // prescribing inlet velocity and extrapolating density from the interior.
+    let adjacent = node+1u;
+    var adjacentRho = 0.0;
+    var adjacentMomentum = vec3<f32>(0.0);
+    for (var i = 0u; i < 19u; i++) {
+      let value = source[i*n+adjacent];
+      adjacentRho += value; adjacentMomentum += value*vec3<f32>(c[i]);
+    }
+    let adjacentVelocity = adjacentMomentum/adjacentRho;
+    let rho = adjacentRho;
+    let t = min(f32(p.step)/f32(p.ramp_steps),1.0);
+    let velocity = p.inlet*(t*t*(3.0-2.0*t));
+    for (var i = 0u; i < 19u; i++) {
+      let nonEquilibrium = source[i*n+adjacent]-equilibrium(i,adjacentRho,adjacentVelocity);
+      destination[i*n+node] = equilibrium(i,rho,velocity)+nonEquilibrium;
+    }
     return;
   }
   var f: array<f32, 19>;
@@ -73,7 +88,17 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (p.boundary_mode >= 2u) { src.x = (src.x + i32(p.grid.x)) % i32(p.grid.x); }
     let upstream = index(src);
     var value = source[direction*n+upstream];
-    if (channel_wall || (flags[upstream] & 1u) != 0u) { value = source[opposite[i]*n+node]; }
+    if (channel_wall) { value = source[opposite[i]*n+node]; }
+    else if ((flags[upstream] & 1u) != 0u) {
+      let surface = flags[node]>>3u;
+      value = source[opposite[i]*n+node];
+      if (surface > 0u) {
+        let q = wall_distance[(surface-1u)*19u+i];
+        var away = value;
+        if (q < 0.5) { away = source[opposite[i]*n+index(vec3<i32>(id)+c[i])]; }
+        value = reflected(value,source[i*n+node],away,q);
+      }
+    }
     f[i] = value;
     rho += value;
     momentum += value * vec3<f32>(c[i]);

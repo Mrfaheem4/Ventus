@@ -63,6 +63,26 @@ export function initialField(grid: Grid, uniform = false) {
       }
   return field;
 }
+export function cpuWallReflection(source: Float64Array, grid: Grid, settings: SolverSettings, flags: Uint32Array, node: number, incoming: number) {
+  const c = directions[incoming], n = flags.length;
+  const opposite = directions.findIndex(d => d.every((v,a) => v === -c[a]));
+  const outgoing = source[opposite*n+node];
+  if (settings.wallBoundary === 'halfway') return outgoing;
+  const x = node%grid.nx, y = Math.floor(node/grid.nx)%grid.ny, z = Math.floor(node/(grid.nx*grid.ny));
+  const center = settings.sphereCenter ?? [grid.nx*0.3,grid.ny/2,grid.nz/2];
+  const radius = settings.sphereRadius ?? Math.min(grid.ny,grid.nz)*0.115;
+  const v = [x+0.5-center[0],y+0.5-center[1],z+0.5-center[2]];
+  const a = c.reduce((s,v) => s+v*v,0), b = -v.reduce((s,v,i) => s+v*c[i],0);
+  const delta = v.reduce((s,v) => s+v*v,0)-radius*radius;
+  const q = (-b-Math.sqrt(Math.max(0,b*b-a*delta)))/a;
+  if(q < 0.5) {
+    const [ax,ay,az]=[x+c[0],y+c[1],z+c[2]];
+    const away = ax+grid.nx*(ay+grid.ny*az);
+    if(ax<0 || ax>=grid.nx || ay<0 || ay>=grid.ny || az<0 || az>=grid.nz || flags[away]&1) return outgoing;
+    return 2*q*outgoing+(1-2*q)*source[opposite*n+away];
+  }
+  return outgoing/(2*q)+(1-1/(2*q))*source[incoming*n+node];
+}
 export function cpuStep(
   source: Float64Array,
   grid: Grid,
@@ -77,25 +97,23 @@ export function cpuStep(
     x + grid.nx * (y + grid.ny * z);
   const t = Math.min(step / settings.rampSteps, 1);
   const closedX = settings.boundaryMode === 'periodic' || settings.boundaryMode === 'channel';
-  const inlet = equilibrium(1, [
-    settings.targetSpeed * t * t * (3 - 2 * t),
-    0,
-    0,
-  ]);
   for (let z = 0; z < grid.nz; z++)
     for (let y = 0; y < grid.ny; y++)
       for (let x = 0; x < grid.nx; x++) {
         const destination = node(x, y, z);
         if (solidFlags && (solidFlags[destination] & 1)) continue;
-        if (!closedX && x === 0) {
-          inlet.forEach((value, i) => {
-            output[i * n + destination] = value;
-          });
+        if (!closedX && x === grid.nx-1) {
+          for(let i=0;i<19;i++) output[i*n+destination]=source[i*n+node(x-1,y,z)];
           continue;
         }
-        if (!closedX && x === grid.nx - 1) {
-          for (let i = 0; i < 19; i++)
-            output[i * n + destination] = source[i * n + node(x - 1, y, z)];
+        if (!closedX && x === 0) {
+          const adjacent = node(1,y,z);
+          const f = directions.map((_,i)=>source[i*n+adjacent]);
+          const rho = f.reduce((sum,v)=>sum+v,0);
+          const u = [0,1,2].map(axis=>directions.reduce((sum,c,i)=>sum+c[axis]*f[i],0)/rho);
+          const neighborEq = equilibrium(rho,u);
+          const boundaryEq = equilibrium(rho,[settings.targetSpeed*t*t*(3-2*t),0,0]);
+          f.forEach((v,i)=>{ output[i*n+destination] = boundaryEq[i]+v-neighborEq[i]; });
           continue;
         }
         const populations = directions.map((c, i) => {
@@ -126,8 +144,7 @@ export function cpuStep(
             sx = (sx + grid.nx) % grid.nx;
           const upstream = node(sx, sy, sz);
           if (solidFlags && (solidFlags[upstream] & 1)) {
-            const opposite = directions.findIndex((direction) => direction.every((value, axis) => value === -c[axis]));
-            return source[opposite*n+destination];
+            return cpuWallReflection(source,grid,settings,solidFlags,destination,i);
           }
           return source[incoming * n + upstream];
         });

@@ -12,8 +12,8 @@ import { resolutionScale } from '../gpu/grid';
 import { createTracers } from '../render/tracers';
 import type { Tracers } from '../render/tracers';
 import type { TracerFrame } from '../render/tracer-seeds';
-import { createSmoke } from '../render/smoke';
-import type { Smoke, SmokeFrame } from '../render/smoke';
+import { createFilaments } from '../render/filaments';
+import type { Filaments as Smoke, FilamentFrame as SmokeFrame } from '../render/filaments';
 
 const initialStats: FlowStats = {
   steps: 0,
@@ -109,7 +109,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           }
           if (!reset && smokeEnabled && !abort.signal.aborted) {
             try {
-              if (!smoke.current) smoke.current = await createSmoke(context,abort.signal);
+              if (!smoke.current) smoke.current = await createFilaments(context,obstacle,abort.signal);
               const frame = await smoke.current.advance(count,next.steps);
               if (!abort.signal.aborted) setSmokeFrame(frame);
             } catch (failure) {
@@ -149,7 +149,7 @@ export function SolverPanel({ context }: { context: GPUContext }) {
   useEffect(() => {
     if (!running) return;
     let cancelled = false;
-    let frame = 0;
+    let timer: ReturnType<typeof setTimeout>;
     async function tick() {
       if (cancelled) return;
       if (document.hidden) {
@@ -158,16 +158,16 @@ export function SolverPanel({ context }: { context: GPUContext }) {
       }
       const completed = await operate(false, batchSteps);
       if (completed && !cancelled)
-        frame = requestAnimationFrame(() => {
+        timer = setTimeout(() => {
           void tick();
-        });
+        }, 0);
     }
-    frame = requestAnimationFrame(() => {
+    timer = setTimeout(() => {
       void tick();
-    });
+    }, 0);
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
+      clearTimeout(timer);
     };
   }, [running, operate, batchSteps]);
 
@@ -216,19 +216,10 @@ export function SolverPanel({ context }: { context: GPUContext }) {
   return (
     <section
       aria-labelledby="solver-heading"
-      className="space-y-5 rounded-xl border border-slate-700 bg-slate-950/60 p-5"
+      className="space-y-3"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 id="solver-heading" className="font-medium text-white">
-          Wind-tunnel airflow
-        </h3>
-        <p className="text-sm text-cyan-300">
-          {running ? "Running" : busy ? "Working..." : "Paused"}
-        </p>
-      </div>
-      <p className="text-sm text-slate-300">
-        Inlet at x = 0 → Wind along +X → Outlet at x = end
-      </p>
+      <h3 id="solver-heading" className="sr-only">Wind-tunnel airflow</h3>
+      <div className="flex flex-wrap items-center gap-3 px-4 pt-3">
       <div>
         <label className="text-sm text-slate-300">
           Test scene
@@ -244,24 +235,65 @@ export function SolverPanel({ context }: { context: GPUContext }) {
             <option value="none">Empty tunnel</option>
           </select>
         </label>
-        <p className="mt-2 text-xs text-slate-400">
-          Pause before changing the scene. Changing it resets the air and step
-          counter.
-        </p>
-        {obstacle.sphere && (
-          <p className="mt-2 text-xs leading-5 text-slate-400">
-            Sphere diameter: {(obstacle.sphere.radius * 2).toFixed(2)} cells ·{" "}
-            {obstacle.solidCells} solid cells · Blockage:{" "}
-            {(obstacle.blockage * 100).toFixed(2)}% · Effective inlet Re:{" "}
-            {(
-              (stats.inletSpeed * obstacle.sphere.radius * 2) /
-              ((0.6 - 0.5) / 3)
-            ).toFixed(2)}
-            . This is a coarse, low-Reynolds-number demonstration. Force
-            readings are provisional.
-          </p>
-        )}
       </div>
+
+
+        <button
+          className={buttonStyle}
+          disabled={!running && (busy || Boolean(error))}
+          onClick={() => setRunning((value) => !value)}
+        >
+          {running ? "Pause" : "Run"}
+        </button>
+
+        <button
+          className={buttonStyle}
+          disabled={running || busy}
+          onClick={() => {
+            void operate(true);
+          }}
+        >
+          Reset fluid
+        </button>
+        <span className="ml-auto text-xs text-cyan-300">{running ? "Running" : busy ? "Working..." : "Paused"}</span>
+      </div>
+      <FlowViewer
+        context={context}
+        steps={stats.steps}
+        targetSpeed={targetSpeed}
+        obstacle={obstacle}
+        tracerFrame={tracerFrame}
+        tracersEnabled={tracersEnabled}
+        tracerBusy={running || busy}
+        tracerError={tracerError}
+        running={running}
+        smokeFrame={smokeFrame}
+        smokeEnabled={smokeEnabled}
+        smokeError={smokeError}
+        onSmokeEnabled={(enabled) => {
+          if (inFlight.current || running) return;
+          smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeError(''); setSmokeEnabled(enabled);
+          setTiming((previous) => previous ? { ...previous, scratchBytes: (solver.current?.scratchBytes ?? 0)+(tracers.current?.bytes ?? 0) } : null);
+        }}
+        onTracersEnabled={(enabled) => {
+          if (inFlight.current || running) return;
+          tracers.current?.dispose(); tracers.current = null;
+          setTracerFrame(null); setTracerError(''); setTracersEnabled(enabled);
+          setTiming((previous) => previous ? { ...previous, scratchBytes: (solver.current?.scratchBytes ?? 0)+(smoke.current?.bytes ?? 0) } : null);
+        }}
+      />
+      <details className="mx-4 rounded-lg border border-slate-800 px-3 py-2">
+        <summary className="cursor-pointer text-xs text-slate-400">Wind settings</summary>
+        <div className="mt-3 space-y-3">
+        <button
+          className={buttonStyle}
+          disabled={running || busy || Boolean(error)}
+          onClick={() => {
+            void operate();
+          }}
+        >
+          Step once
+        </button>
       <div>
         <label htmlFor="inlet-speed" className="block text-sm text-slate-300">
           Target inlet speed: {targetSpeed.toFixed(4)} lattice units
@@ -282,58 +314,25 @@ export function SolverPanel({ context }: { context: GPUContext }) {
           Resolution presets adjust the initial lattice speed and ramp duration to keep the starting Reynolds number comparable. Very small fallback grids cap the initial speed. Physical m/s scaling comes later.
         </p>
       </div>
-      <div className="flex flex-wrap gap-3">
-        <label className="text-sm text-slate-300">Simulation pace<select value={batchSteps} disabled={running || busy} onChange={(event) => setBatchSteps(Number(event.target.value))} className="ml-3 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 disabled:opacity-40"><option value="4">Gentle — 4 steps/update</option><option value="8">Balanced — 8 steps/update</option><option value="16">Fast — 16 steps/update</option></select></label>
-        <button
-          className={buttonStyle}
-          disabled={!running && (busy || Boolean(error))}
-          onClick={() => setRunning((value) => !value)}
-        >
-          {running ? "Pause" : "Run"}
-        </button>
-        <button
-          className={buttonStyle}
-          disabled={running || busy || Boolean(error)}
-          onClick={() => {
-            void operate();
-          }}
-        >
-          Step once
-        </button>
-        <button
-          className={buttonStyle}
-          disabled={running || busy}
-          onClick={() => {
-            void operate(true);
-          }}
-        >
-          Reset fluid
-        </button>
-      </div>
-      <FlowViewer
-        context={context}
-        steps={stats.steps}
-        targetSpeed={targetSpeed}
-        obstacle={obstacle}
-        tracerFrame={tracerFrame}
-        tracersEnabled={tracersEnabled}
-        tracerBusy={running || busy}
-        tracerError={tracerError}
-        smokeFrame={smokeFrame}
-        smokeEnabled={smokeEnabled}
-        smokeError={smokeError}
-        onSmokeEnabled={(enabled) => {
-          if (inFlight.current || running) return;
-          smoke.current?.dispose(); smoke.current = null; setSmokeFrame(null); setSmokeError(''); setSmokeEnabled(enabled);
-          setTiming((previous) => previous ? { ...previous, scratchBytes: (solver.current?.scratchBytes ?? 0)+(tracers.current?.bytes ?? 0) } : null);
-        }}
-        onTracersEnabled={(enabled) => {
-          if (inFlight.current || running) return;
-          tracers.current?.dispose(); tracers.current = null;
-          setTracerFrame(null); setTracerError(''); setTracersEnabled(enabled);
-          setTiming((previous) => previous ? { ...previous, scratchBytes: (solver.current?.scratchBytes ?? 0)+(smoke.current?.bytes ?? 0) } : null);
-        }}
-      />
+        <label className="text-sm text-slate-300">Simulation pace<select value={batchSteps} disabled={running || busy} onChange={(event) => setBatchSteps(Number(event.target.value))} className="ml-3 rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 disabled:opacity-40"><option value="4">Gentle — 4 steps/update</option><option value="8">Balanced — 8 steps/update</option><option value="16">Fast — 16 steps/update</option></select></label>        {obstacle.sphere && (
+          <p className="mt-2 text-xs leading-5 text-slate-400">
+            Sphere diameter: {(obstacle.sphere.radius * 2).toFixed(2)} cells ·{" "}
+            {obstacle.solidCells} solid cells · Blockage:{" "}
+            {(obstacle.blockage * 100).toFixed(2)}% · Effective inlet Re:{" "}
+            {(
+              (stats.inletSpeed * obstacle.sphere.radius * 2) /
+              ((0.6 - 0.5) / 3)
+            ).toFixed(2)}
+            . This is a coarse, low-Reynolds-number demonstration. Force
+            readings are provisional.
+          </p>
+        )}
+        <p className="text-xs text-slate-500">Reset before changing speed. Scene and resolution changes start a fresh flow.</p>
+        </div>
+      </details>
+      <details className="mx-4 rounded-xl border border-slate-800 p-4">
+        <summary className="cursor-pointer text-sm text-slate-400">Simulation diagnostics</summary>
+        <div className="mt-4 space-y-4">
       <dl className="grid gap-4 text-sm sm:grid-cols-2">
         {[
           ["Simulation steps", stats.steps.toLocaleString()],
@@ -365,6 +364,8 @@ export function SolverPanel({ context }: { context: GPUContext }) {
         moving ground. Values use lattice units. The slice displays fluid values
         outside the selected obstacle.
       </p>
+        </div>
+      </details>
       {error && (
         <p
           role="alert"

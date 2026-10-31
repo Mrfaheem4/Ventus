@@ -4,8 +4,8 @@ import type { Grid } from '../gpu/grid';
 import type { Obstacle } from '../geometry/sphere';
 import { createTracerView } from './tracer-view';
 import type { TracerFrame } from './tracer-seeds';
-import { createSmokeView } from './smoke-view';
-import type { SmokeFrame } from './smoke';
+import { createFilamentView } from './filament-view';
+import type { FilamentFrame as SmokeFrame } from './filaments';
 
 export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle?: Obstacle) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
@@ -30,17 +30,18 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   let fitScale = 1;
   controls.minDistance = 0.6;
   controls.maxDistance = 12;
-  const opaqueDepth = new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
-  const depthTarget = new THREE.WebGLRenderTarget(1,1,{ depthTexture: opaqueDepth });
-  const smoke = createSmokeView(grid,opaqueDepth,camera);
+  const smoke = createFilamentView(grid);
   scene.add(smoke.mesh);
+  let running=false, animation=0, lastDraw=0;
   function render() {
-    if (smoke.mesh.visible) {
-      smoke.mesh.visible = false;
-      renderer.setRenderTarget(depthTarget); renderer.render(scene,camera); renderer.setRenderTarget(null);
-      smoke.mesh.visible = true;
-    }
-    renderer.render(scene, camera);
+    renderer.domElement.dataset.smokeTime=String(smoke.sample(performance.now()));
+    renderer.render(scene,camera);
+  }
+  function animate(now:number) {
+    if(!running)return;
+    // Keep decorative smoke animation inexpensive on integrated GPUs.
+    if(!document.hidden && smoke.mesh.visible && now-lastDraw>=1000/30){render();lastDraw=now;}
+    animation=requestAnimationFrame(animate);
   }
   function resetCamera() {
     camera.position.set(width * 0.22, 0.45, Math.max(depth * 2.5, 2.2));
@@ -128,17 +129,16 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
   }
   label('INLET', -width / 2, '#67e8f9');
   label('OUTLET', width / 2, '#94a3b8');
-  controls.addEventListener('change', render);
+  const cameraChanged = () => render();
+  controls.addEventListener('change', cameraChanged);
   const resize = new ResizeObserver(() => {
     const { width, height } = container.getBoundingClientRect();
     if (!width || !height) return;
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
-    const dimensions = renderer.getDrawingBufferSize(new THREE.Vector2());
-    depthTarget.setSize(dimensions.x,dimensions.y); smoke.resize(dimensions.x,dimensions.y);
     // Keep the same horizontal framing on portrait screens without resetting orbit.
-    const nextScale = Math.max(1, 1 / camera.aspect);
+    const nextScale = Math.max(1, 1.5 / camera.aspect);
     camera.position.sub(controls.target).multiplyScalar(nextScale / fitScale).add(controls.target);
     fitScale = nextScale;
     controls.update();
@@ -154,11 +154,16 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
       camera.position.set(0,0,Math.max(depth*2.8,2.8)).multiplyScalar(fitScale);
       controls.target.set(0,0,0); controls.update(); render();
     },
+    setRunning(value:boolean) {
+      running=value;smoke.setRunning(value);cancelAnimationFrame(animation);
+      if(value)animation=requestAnimationFrame(animate);else render();
+    },
     setSmoke(frame: SmokeFrame | null) {
-      smoke.update(frame);
-      renderer.domElement.dataset.smokeStep = String(frame?.step ?? 0);
-      renderer.domElement.dataset.smokeVoxels = String(frame?.density.length ?? 0);
-      render();
+      const segments=smoke.update(frame);
+      renderer.domElement.dataset.smokeStep=String(frame?.step ?? 0);
+      renderer.domElement.dataset.smokeLines=String(frame?.lines ?? 0);
+      renderer.domElement.dataset.smokeSegments=String(segments);
+      if(!running || !frame)render();
     },
     setSliceOpacity(opacity: number) { plane.material.opacity = opacity; render(); },
     setTracers(frame: TracerFrame | null) {
@@ -181,7 +186,7 @@ export function createTunnelView(container: HTMLDivElement, grid: Grid, obstacle
       render();
     },
     dispose() {
-      smoke.dispose(); depthTarget.dispose();
+      running=false;cancelAnimationFrame(animation);
       resize.disconnect();
       controls.dispose();
       const textures = new Set<THREE.Texture>();

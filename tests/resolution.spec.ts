@@ -33,6 +33,7 @@ test('resolution change resets a running flow and creates a working finer simula
   await expect(value('Simulation steps')).toHaveText('0');
   await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeEnabled();
   await expect(page.getByLabel('Target inlet speed')).toHaveValue('0.02');
+  await page.getByText('Wind settings',{ exact:true }).evaluate(el => { (el.parentElement as HTMLDetailsElement).open = true; });
   await page.getByRole('button', { name: 'Step once' }).click();
   await expect(value('Simulation steps')).toHaveText('1');
   await expect(value('Latest batch wall time / step')).toContainText('ms');

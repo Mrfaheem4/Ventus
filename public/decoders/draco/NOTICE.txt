@@ -1,0 +1,6 @@
+Draco decoder artifacts distributed with Three.js.
+Source: three/examples/jsm/libs/draco/gltf in the installed three package.
+Upstream: https://github.com/google/draco
+License: Apache License 2.0 (see LICENSE.txt).
+Vite bundles the installed Three.js decoder artifacts for local use.
+This directory preserves their license notice; no remote decoder service is used.

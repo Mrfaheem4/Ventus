@@ -6,7 +6,7 @@ import type { TunnelView } from "../render/tunnel-view";
 import type { Obstacle } from '../geometry/sphere';
 import { obstacleSlice } from '../geometry/sphere';
 import type { TracerFrame } from '../render/tracer-seeds';
-import type { SmokeFrame } from '../render/smoke';
+import type { FilamentFrame as SmokeFrame } from '../render/filaments';
 
 export function FlowViewer({
   context,
@@ -18,6 +18,7 @@ export function FlowViewer({
   onTracersEnabled,
   tracerBusy,
   tracerError,
+  running,
   smokeFrame,
   smokeEnabled,
   onSmokeEnabled,
@@ -32,6 +33,7 @@ export function FlowViewer({
   onTracersEnabled: (enabled: boolean) => void;
   tracerBusy: boolean;
   tracerError: string;
+  running: boolean;
   smokeFrame: SmokeFrame | null;
   smokeEnabled: boolean;
   onSmokeEnabled: (enabled: boolean) => void;
@@ -55,6 +57,8 @@ export function FlowViewer({
   const request = useRef({ steps, quantity, slice, extent, showGrid, showSlice, showVoxelBody });
   const tracerRequest = useRef(tracerFrame);
   const smokeRequest = useRef(smokeFrame);
+  const runningRequest=useRef(running);
+  useEffect(()=>{runningRequest.current=running;view.current?.setRunning(running);},[running]);
   useEffect(() => { tracerRequest.current = tracerFrame; view.current?.setTracers(tracerFrame); },[tracerFrame]);
   useEffect(() => { smokeRequest.current = smokeFrame; view.current?.setSmoke(smokeFrame); },[smokeFrame]);
   useEffect(() => { view.current?.setSliceOpacity(sliceOpacity); },[sliceOpacity]);
@@ -141,6 +145,7 @@ export function FlowViewer({
         active.setVoxelBody(request.current.showVoxelBody);
         active.setTracers(tracerRequest.current);
         active.setSmoke(smokeRequest.current);
+        active.setRunning(runningRequest.current);
         void refresh();
       })
       .catch((failure: unknown) => {
@@ -163,17 +168,18 @@ export function FlowViewer({
   return (
     <section
       aria-labelledby="viewer-heading"
-      className="overflow-hidden rounded-xl border border-slate-700 bg-slate-950/60"
+      className="overflow-hidden border-y border-slate-800 bg-[#080f19]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
         <div>
-          <h3 id="viewer-heading" className="font-medium text-white">
+          <h3 id="viewer-heading" className="sr-only">
             3D flow view
           </h3>
           <p className="mt-1 text-xs text-slate-400">
             Drag to orbit · Scroll to zoom · Right-drag to pan
           </p>
         </div>
+        <div className="flex items-center gap-2">
         <button onClick={() => view.current?.sideView()} className="rounded-lg border border-slate-600 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-cyan-400">Side view</button>
         <button
           onClick={() => view.current?.resetCamera()}
@@ -181,9 +187,10 @@ export function FlowViewer({
         >
           Reset camera
         </button>
+        </div>
       </div>
-      <div ref={host} className="h-[26rem] w-full sm:h-[65vh] sm:min-h-[32rem]" />
-      <div className="space-y-4 p-5">
+      <div ref={host} className="h-[55dvh] min-h-80 w-full sm:h-[calc(100dvh-160px)] sm:min-h-[30rem]" />
+      <div className="space-y-3 border-t border-slate-800 px-4 py-3">
         <div className="flex flex-wrap items-center gap-5">
           <label hidden={!showSlice} className="text-sm text-slate-300">
             Color by
@@ -208,10 +215,15 @@ export function FlowViewer({
             Show cell grid
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showSlice} onChange={(event) => setShowSlice(event.target.checked)} className="accent-cyan-400" />Show slice</label>
+          <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" title="Moving wisps illustrate flow along the calculated paths; they do not add physical turbulence." aria-label="Show smoke" checked={smokeEnabled} disabled={tracerBusy} onChange={(event) => onSmokeEnabled(event.target.checked)} className="accent-cyan-400 disabled:opacity-40" />Smoke lines</label>
+        </div>
+        <details className="text-xs text-slate-400">
+          <summary className="cursor-pointer">Inspect geometry and tracers</summary>
+          <div className="mt-3 flex flex-wrap gap-5">
           {obstacle.sphere && <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showVoxelBody} onChange={(event) => setShowVoxelBody(event.target.checked)} className="accent-cyan-400" />Show voxel body</label>}
           <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={tracersEnabled} disabled={tracerBusy} onChange={(event) => onTracersEnabled(event.target.checked)} className="accent-cyan-400 disabled:opacity-40" />Show airflow tracers</label>
-          <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={smokeEnabled} disabled={tracerBusy} onChange={(event) => onSmokeEnabled(event.target.checked)} className="accent-cyan-400 disabled:opacity-40" />Show smoke</label>
-        </div>
+          </div>
+        </details>
         {showSlice && <label className="block text-sm text-slate-300">Slice opacity: {Math.round(sliceOpacity*100)}%<input type="range" min="0.05" max="1" step="0.05" value={sliceOpacity} onChange={(event) => setSliceOpacity(Number(event.target.value))} className="mt-2 w-full accent-cyan-400" /></label>}
         <div hidden={!showSlice}>
           <label htmlFor="slice-z" className="text-sm text-slate-300">
@@ -263,9 +275,9 @@ export function FlowViewer({
         <p hidden={!showSlice} className="text-xs leading-5 text-slate-500">
           Colors come from the simulated field. Values beyond the displayed
           scale use its endpoint color. X follows the wind, Y is up, and Z moves
-          the slice. {obstacle.sphere ? 'The smooth sphere is a preview; Show voxel body reveals the solid cells used by the solver. Solid cells are excluded from slice colors and ranges.' : 'The tunnel is empty.'}
+          the slice. {obstacle.sphere ? 'Voxels identify the interior; wall intersections follow the curved surface. Solid cells are excluded from slice colors.' : 'The tunnel is empty.'}
         </p>
-        <p className="text-xs leading-5 text-slate-400">White smoke is transported by the calculated airflow from seven inlet filaments. The pulses change smoke concentration, not wind velocity. The color scale applies to the optional slice. Pause before toggling smoke or diagnostic tracers. Smoke freezes with the simulation; a smooth laminar flow may have no visible vortices.</p>
+
         {tracerError && <p role="status" className="text-xs text-amber-200">Airflow tracers: {tracerError} The airflow solver can continue with tracers disabled.</p>}
         {smokeError && <p role="status" className="text-xs text-amber-200">Smoke: {smokeError} The airflow solver can continue with smoke disabled.</p>}
         {error && (

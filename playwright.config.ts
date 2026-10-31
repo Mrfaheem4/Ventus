@@ -2,7 +2,9 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests',
-  fullyParallel: true,
+  // Real GPU checks share one adapter: keep the development machine responsive.
+  workers: 1,
+  fullyParallel: false,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     browserName: 'chromium',

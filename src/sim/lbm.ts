@@ -1,4 +1,6 @@
 import lbmShader from "../shaders/lbm.wgsl?raw";
+import wallShader from "../shaders/wall-reflection.wgsl?raw";
+import { buildWallLinks } from "../geometry/wall-links";
 import macroShader from "../shaders/macroscopic.wgsl?raw";
 import obstacleShader from '../shaders/obstacles.wgsl?raw';
 import forceShader from '../shaders/forces.wgsl?raw';
@@ -31,6 +33,7 @@ export async function createSolver(
   const { device, resources, grid } = context;
   const obstacle = createObstacle(grid, settings.obstacle, settings.sphereRadius, settings.sphereCenter);
   const surfaceLinks = obstacle.solidCells ? buildSurfaceLinks(grid, obstacle) : new Uint32Array();
+  const walls = buildWallLinks(grid, obstacle, surfaceLinks, settings.wallBoundary === "interpolated");
   const forceGroups = Math.ceil(surfaceLinks.length/2/64);
   let lastForceSamples: ForceSample[] = [];
   const owned: GPUBuffer[] = [];
@@ -64,7 +67,7 @@ export async function createSolver(
     return value;
   }
   function configureBoundaries() {
-    const flags = obstacle.solidFlags.slice();
+    const flags = walls.flags.slice();
     if (
       settings.boundaryMode !== "periodic" &&
       settings.boundaryMode !== "channel"
@@ -117,13 +120,16 @@ export async function createSolver(
         );
       return shader;
     }
-    const stepModule = await module("D3Q19 stream and collide", lbmShader);
+    const wallDistances = buffer("Surface link distances", walls.fractions.byteLength, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    device.queue.writeBuffer(wallDistances,0,walls.fractions);
+    const stepModule = await module("D3Q19 stream and collide", wallShader+lbmShader);
     const macroModule = await module(
       "Velocity, pressure, and stability",
       macroShader,
     );
     const stepLayout = device.createBindGroupLayout({
       entries: [
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         {
           binding: 0,
           visibility: GPUShaderStage.COMPUTE,
@@ -203,6 +209,7 @@ export async function createSolver(
       device.createBindGroup({
         layout: stepLayout,
         entries: [
+          { binding: 4, resource: { buffer: wallDistances } },
           { binding: 0, resource: { buffer: resources.distributions[i] } },
           { binding: 1, resource: { buffer: resources.distributions[1 - i] } },
           { binding: 2, resource: { buffer: resources.flags } },
@@ -230,16 +237,19 @@ export async function createSolver(
       device.queue.writeBuffer(links, 0, surfaceLinks);
       forcePartials = buffer('Per-step force partials', forceGroups*16*16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
       const forceLayout = device.createBindGroupLayout({ entries: [
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 48 } },
       ] });
-      const shader = await module('Momentum exchange on stationary solids', forceShader);
+      const shader = await module('Momentum exchange on stationary solids', wallShader+forceShader);
       forcePipeline = await device.createComputePipelineAsync({ label: 'Body force reduction',
         layout: device.createPipelineLayout({ bindGroupLayouts: [forceLayout] }), compute: { module: shader, entryPoint: 'main' } });
       checkActive();
       forceBindGroups = resources.distributions.map((state) => device.createBindGroup({ layout: forceLayout, entries: [
+        { binding: 4, resource: { buffer: resources.flags } }, { binding: 5, resource: { buffer: wallDistances } },
         { binding: 0, resource: { buffer: state } }, { binding: 1, resource: { buffer: links } },
         { binding: 2, resource: { buffer: forcePartials! } }, { binding: 3, resource: { buffer: params, size: 48 } },
       ] }));

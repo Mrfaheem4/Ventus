@@ -1,0 +1,121 @@
+{
+  "adapter": "amd",
+  "grid": {
+    "nx": 64,
+    "ny": 32,
+    "nz": 32
+  },
+  "checkpoints": [
+    {
+      "steps": 1024,
+      "profile": [
+        {
+          "x": 0,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 1,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 2,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 16,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 32,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 48,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 62,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 63,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        }
+      ],
+      "densityMin": 1.0464054346084595,
+      "densityMax": 1.0464110374450684
+    },
+    {
+      "steps": 4096,
+      "profile": [
+        {
+          "x": 0,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 1,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 2,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 16,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 32,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 48,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 62,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        },
+        {
+          "x": 63,
+          "ux": 0.029998779296875,
+          "relativeInletSpeed": 0.9999593098958334,
+          "pressureVariation": 0.015468750149011612
+        }
+      ],
+      "densityMin": 1.04641854763031,
+      "densityMax": 1.04641854763031
+    }
+  ],
+  "note": "Empty free-slip tunnel from rest. Cross-Y means at Z=16. Reports delivered flow; stable values alone do not certify the boundary condition."
+}

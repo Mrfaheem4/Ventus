@@ -12,6 +12,7 @@ export interface SolverSettings {
   boundaryMode: BoundaryMode;
   acceleration: number;
   obstacle: ObstacleKind;
+  wallBoundary: "halfway" | "interpolated";
   sphereRadius?: number;
   sphereCenter?: readonly [number, number, number];
 }
@@ -22,8 +23,10 @@ export const DEFAULT_SETTINGS: SolverSettings = {
   boundaryMode: "free-slip",
   acceleration: 0,
   obstacle: 'none',
+  wallBoundary: 'interpolated',
 };
 export function validateSettings(settings: SolverSettings) {
+  if (!["halfway","interpolated"].includes(settings.wallBoundary)) throw new Error("Unknown wall boundary treatment.");
   if (settings.sphereCenter !== undefined && (settings.obstacle !== 'sphere' || settings.sphereCenter.length !== 3 || settings.sphereCenter.some((value) => !Number.isFinite(value)))) throw new Error('A custom center requires a sphere and three finite coordinates.');
   if (settings.sphereRadius !== undefined && (!Number.isFinite(settings.sphereRadius) || settings.sphereRadius <= 0 || settings.obstacle !== 'sphere')) {
     throw new Error('A custom radius requires a sphere and must be positive and finite.');

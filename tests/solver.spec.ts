@@ -259,6 +259,7 @@ test('real UI supports stepping, running, pausing, reset, and background pause',
   const panel = page.getByRole('region', { name: 'Wind-tunnel airflow' });
   await panel.getByLabel('Test scene').selectOption('none');
   await expect(panel.getByRole('button', { name: 'Step once' })).toBeEnabled();
+  await page.getByText('Wind settings',{ exact:true }).evaluate(el => { (el.parentElement as HTMLDetailsElement).open = true; });
   await panel.getByRole('button', { name: 'Step once' }).click();
   await expect(panel.locator('dt', { hasText: 'Simulation steps' }).locator('..').locator('dd')).toHaveText('1');
   await panel.getByRole('button', { name: 'Run', exact: true }).click();
